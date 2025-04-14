@@ -1,0 +1,31 @@
+# === GLOBAL ===
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.db
+.env
+*.log
+
+# === BACKEND ===
+# Entorno virtual
+venv/
+.env
+
+# Archivos de configuración/compilación
+*.egg-info/
+dist/
+build/
+
+# === FRONTEND (Vite + React) ===
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Archivos temporales de sistema
+.DS_Store
+Thumbs.db
+
+# === IDEs comunes ===
+.vscode/
+.idea/
+
