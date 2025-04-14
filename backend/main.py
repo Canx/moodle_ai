@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import sqlite3
 import requests
 from fastapi.middleware.cors import CORSMiddleware
+from scraper import obtener_cursos_desde_moodle
 
 app = FastAPI()
 
@@ -50,13 +51,11 @@ def obtener_cursos(profesor_id: int):
 
     usuario, contrasena, moodle_url = fila
 
-    # Aquí más adelante haremos el scraping con Playwright
-    # Por ahora solo simulamos el resultado
-    cursos_simulados = [
-        {"id": 1, "fullname": "Matemáticas 4ESO"},
-        {"id": 2, "fullname": "Historia Contemporánea"},
-    ]
+    try:
+        cursos = obtener_cursos_desde_moodle(usuario, contrasena, moodle_url)
+        return cursos
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener cursos: {str(e)}")
 
-    return cursos_simulados
 
 
