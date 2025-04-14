@@ -63,8 +63,12 @@ function App() {
         <div className="mt-6">
           <h2 className="text-xl font-semibold mb-2">Cursos disponibles:</h2>
           <ul className="list-disc list-inside">
-            {cursos.map(curso => (
-              <li key={curso.id}>{curso.fullname}</li>
+            {cursos.map((curso, index) => (
+              <li key={index}>
+                <a href={curso.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                  {curso.nombre}
+                </a>
+              </li>
             ))}
           </ul>
         </div>

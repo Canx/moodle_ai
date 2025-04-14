@@ -1,3 +1,3 @@
 # TODO
 
-- No entra correctamente con las credenciales. Debe reconocer cuando ha fallado...
+- Hacer click en un curso y obtener sus tareas para evaluar.
