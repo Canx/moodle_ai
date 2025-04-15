@@ -57,6 +57,10 @@ class CuentaMoodle(BaseModel):
     usuario_moodle: str
     contrasena_moodle: str
 
+class LoginRequest(BaseModel):
+    identificador: str  # Puede ser correo o nombre de usuario
+    contrasena: str
+
 # Endpoint para registrar usuarios
 @app.post("/api/usuarios")
 def registrar_usuario(usuario: Usuario):
@@ -90,7 +94,6 @@ def obtener_cuentas_moodle(usuario_id: int):
     cuentas = cursor.fetchall()
     return [{"id": c[0], "moodle_url": c[1], "usuario_moodle": c[2]} for c in cuentas]
 
-
 # Endpoint para obtener cursos de un profesor
 @app.get("/cursos/{profesor_id}")
 def obtener_cursos(profesor_id: int):
@@ -107,6 +110,19 @@ def obtener_cursos(profesor_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener cursos: {str(e)}")
 
+@app.post("/api/login")
+def login(request: LoginRequest):
+    cursor.execute(
+        """
+        SELECT id FROM usuarios 
+        WHERE (correo = ? OR nombre = ?) AND contrasena = ?
+        """,
+        (request.identificador, request.identificador, request.contrasena),
+    )
+    usuario = cursor.fetchone()
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    return {"usuarioId": usuario[0]}
 
 def obtener_tareas_desde_moodle(usuario: str, contrasena: str, moodle_url: str, curso_id: int):
     """

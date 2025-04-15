@@ -1,96 +1,53 @@
-// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Route, Routes, Link } from "react-router-dom";
-import CursoTareas from "./CursoTareas";
 import RegistroUsuario from "./RegistroUsuario";
+import Usuario from "./Usuario";
 import CuentasMoodle from "./CuentasMoodle";
+import Login from "./Login";
 
 function App() {
-  const [usuarioId, setUsuarioId] = useState(null); // Estado para el usuario autenticado
-  const [cursos, setCursos] = useState([]);
+  const [usuarioId, setUsuarioId] = useState(null);
 
-  // Función para obtener cursos desde el backend
-  const obtenerCursos = async () => {
-    const response = await fetch("/api/cursos", {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    });
-    const data = await response.json();
-    setCursos(data);
-  };
+  // Cargar el estado de la sesión desde localStorage al iniciar la aplicación
+  useEffect(() => {
+    const storedUsuarioId = localStorage.getItem("usuarioId");
+    if (storedUsuarioId) {
+      setUsuarioId(storedUsuarioId);
+    }
+  }, []);
 
-  // Función para sincronizar cursos (scraping)
-  const sincronizarCursos = async () => {
-    const response = await fetch("/api/cursos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usuarioId }),
-    });
-    const data = await response.json();
-    setCursos(data);
+  // Manejar el cierre de sesión
+  const cerrarSesion = () => {
+    localStorage.removeItem("usuarioId");
+    setUsuarioId(null);
   };
 
   return (
     <Router>
-      <div className="p-4">
-        <nav className="mb-4">
-          <Link to="/" className="mr-4 text-blue-500 underline">
-            Inicio
-          </Link>
-          <Link to="/registro" className="mr-4 text-blue-500 underline">
-            Registro
-          </Link>
+      <div>
+        <nav>
+          <Link to="/">Inicio</Link>
+          {!usuarioId && <Link to="/registro">Registro</Link>}
           {usuarioId && (
-            <Link to="/cuentas" className="text-blue-500 underline">
-              Mis Cuentas de Moodle
-            </Link>
+            <>
+              <Link to={`/usuario/${usuarioId}`}>Mi Cuenta</Link>
+              <button onClick={cerrarSesion} style={{ marginLeft: "10px" }}>
+                Cerrar Sesión
+              </button>
+            </>
           )}
         </nav>
-
         <Routes>
-          {/* Página principal con la lista de cursos */}
           <Route
             path="/"
-            element={
-              <div>
-                <h2 className="text-lg font-bold">Cursos</h2>
-                <button
-                  type="button"
-                  onClick={obtenerCursos}
-                  className="bg-gray-600 text-white px-4 py-2 rounded mb-2"
-                >
-                  Refrescar cursos
-                </button>
-                <ul>
-                  {cursos.map((curso) => (
-                    <li key={curso.id}>
-                      <Link
-                        to={`/cursos/${curso.id}`}
-                        className="text-blue-500 underline"
-                      >
-                        {curso.nombre}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            }
+            element={<Login setUsuarioId={(id) => {
+              setUsuarioId(id);
+              localStorage.setItem("usuarioId", id); // Guardar en localStorage
+            }} />}
           />
-
-          {/* Página para registrar usuarios */}
-          <Route
-            path="/registro"
-            element={<RegistroUsuario setUsuarioId={setUsuarioId} />}
-          />
-
-          {/* Página para gestionar cuentas de Moodle */}
-          <Route
-            path="/cuentas"
-            element={<CuentasMoodle usuarioId={usuarioId} />}
-          />
-
-          {/* Página para mostrar las tareas de un curso */}
-          <Route path="/cursos/:cursoId" element={<CursoTareas />} />
+          <Route path="/registro" element={<RegistroUsuario setUsuarioId={setUsuarioId} />} />
+          <Route path="/usuario/:usuarioId" element={<Usuario />} />
+          <Route path="/usuario/:usuarioId/cuentas" element={<CuentasMoodle />} />
         </Routes>
       </div>
     </Router>

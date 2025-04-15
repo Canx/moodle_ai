@@ -1,9 +1,12 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-function RegistroUsuario() {
+function RegistroUsuario({ setUsuarioId }) {
   const [nombre, setNombre] = useState("");
   const [correo, setCorreo] = useState("");
   const [contrasena, setContrasena] = useState("");
+  const [mensaje, setMensaje] = useState(""); // Estado para mostrar mensajes
+  const navigate = useNavigate();
 
   const registrarUsuario = async () => {
     const response = await fetch("/api/usuarios", {
@@ -12,16 +15,20 @@ function RegistroUsuario() {
       body: JSON.stringify({ nombre, correo, contrasena }),
     });
     const data = await response.json();
+
     if (response.ok) {
-      alert("Usuario registrado exitosamente");
+      setMensaje("Usuario registrado correctamente");
+      setUsuarioId(data.id); // Guarda el ID del usuario registrado
+      navigate(`/usuario/${data.id}`); // Redirige a la página del usuario
     } else {
-      alert(data.detail);
+      setMensaje(data.detail || "Error al registrar el usuario");
     }
   };
 
   return (
     <div>
       <h2>Registro de Usuario</h2>
+      {mensaje && <p className="text-green-500">{mensaje}</p>}
       <input
         type="text"
         placeholder="Nombre"
