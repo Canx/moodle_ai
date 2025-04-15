@@ -19,13 +19,11 @@ cd moodle-ai
 cd backend
 python3 -m venv venv
 source venv/bin/activate
-```
 
 ### 3. Instala las dependencias
 
 ```bash
 pip install -r requirements.txt
-```
 
 ### 4. Ejecuta el backend
 
