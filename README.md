@@ -19,27 +19,33 @@ cd moodle-ai
 cd backend
 python3 -m venv venv
 source venv/bin/activate
+```
 
 ### 3. Instala las dependencias
 
 ```bash
 pip install -r requirements.txt
+```
 
 ### 4. Ejecuta el backend
 
 ```bash
 uvicorn main:app --reload
+```
 
 ### 5. Ejecuta el frontend
 
 1. Ve al directorio del frontend:
 ```bash
 cd frontend
+```
 
 2. Instala las dependencias
 ```bash
 npm install
+```
 
 3. Inicia el servidor de desarrollo
 ```bash
 npm run dev
+```
