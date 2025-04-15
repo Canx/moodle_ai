@@ -1,79 +1,99 @@
 // src/App.jsx
-import { useState } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect } from "react";
+import { BrowserRouter as Router, Route, Routes, Link } from "react-router-dom";
+import CursoTareas from "./CursoTareas";
+import RegistroUsuario from "./RegistroUsuario";
+import CuentasMoodle from "./CuentasMoodle";
 
 function App() {
-  const [usuario, setUsuario] = useState("");
-  const [contrasena, setContrasena] = useState("");
-  const [url, setUrl] = useState("");
-  const [profesorId, setProfesorId] = useState(null);
+  const [usuarioId, setUsuarioId] = useState(null); // Estado para el usuario autenticado
   const [cursos, setCursos] = useState([]);
 
-  const registrarProfesor = async () => {
-    try {
-      const response = await axios.post("http://localhost:8000/registrar_profesor", {
-        usuario,
-        contrasena,
-        moodle_url: url
-      });
-      alert("Profesor registrado correctamente");
+  // Función para obtener cursos desde el backend
+  const obtenerCursos = async () => {
+    const response = await fetch("/api/cursos", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await response.json();
+    setCursos(data);
+  };
 
-      const resCursos = await axios.get("http://localhost:8000/cursos/1"); // provisionalmente usamos ID 1
-      setProfesorId(1);
-      setCursos(resCursos.data);
-    } catch (error) {
-      alert("Error al registrar profesor o conectar con Moodle");
-      console.error(error);
-    }
+  // Función para sincronizar cursos (scraping)
+  const sincronizarCursos = async () => {
+    const response = await fetch("/api/cursos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuarioId }),
+    });
+    const data = await response.json();
+    setCursos(data);
   };
 
   return (
-    <div className="p-8 max-w-xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Conectar con Moodle</h1>
-      <input
-        type="text"
-        placeholder="Usuario de Moodle"
-        className="border p-2 mb-2 w-full"
-        value={usuario}
-        onChange={(e) => setUsuario(e.target.value)}
-      />
-      <input
-        type="password"
-        placeholder="Contraseña de Moodle"
-        className="border p-2 mb-2 w-full"
-        value={contrasena}
-        onChange={(e) => setContrasena(e.target.value)}
-      />
-      <input
-        type="text"
-        placeholder="URL de Moodle (sin /final)"
-        className="border p-2 mb-2 w-full"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-      />
-      <button
-        type="button"
-        onClick={registrarProfesor}
-        className="bg-blue-600 text-white px-4 py-2 rounded"
-      >
-        Conectar y obtener cursos
-      </button>
+    <Router>
+      <div className="p-4">
+        <nav className="mb-4">
+          <Link to="/" className="mr-4 text-blue-500 underline">
+            Inicio
+          </Link>
+          <Link to="/registro" className="mr-4 text-blue-500 underline">
+            Registro
+          </Link>
+          {usuarioId && (
+            <Link to="/cuentas" className="text-blue-500 underline">
+              Mis Cuentas de Moodle
+            </Link>
+          )}
+        </nav>
 
-      {cursos.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-2">Cursos disponibles:</h2>
-          <ul className="list-disc list-inside">
-            {cursos.map((curso, index) => (
-              <li key={index}>
-                <a href={curso.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                  {curso.nombre}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+        <Routes>
+          {/* Página principal con la lista de cursos */}
+          <Route
+            path="/"
+            element={
+              <div>
+                <h2 className="text-lg font-bold">Cursos</h2>
+                <button
+                  type="button"
+                  onClick={obtenerCursos}
+                  className="bg-gray-600 text-white px-4 py-2 rounded mb-2"
+                >
+                  Refrescar cursos
+                </button>
+                <ul>
+                  {cursos.map((curso) => (
+                    <li key={curso.id}>
+                      <Link
+                        to={`/cursos/${curso.id}`}
+                        className="text-blue-500 underline"
+                      >
+                        {curso.nombre}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            }
+          />
+
+          {/* Página para registrar usuarios */}
+          <Route
+            path="/registro"
+            element={<RegistroUsuario setUsuarioId={setUsuarioId} />}
+          />
+
+          {/* Página para gestionar cuentas de Moodle */}
+          <Route
+            path="/cuentas"
+            element={<CuentasMoodle usuarioId={usuarioId} />}
+          />
+
+          {/* Página para mostrar las tareas de un curso */}
+          <Route path="/cursos/:cursoId" element={<CursoTareas />} />
+        </Routes>
+      </div>
+    </Router>
   );
 }
 
