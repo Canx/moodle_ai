@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from database import cursor, conn
 from models import CuentaMoodle
-from scraper import obtener_cursos_desde_moodle, sincronizar_cursos_y_tareas
+from scraper import sincronizar_cursos_y_tareas
+import re
 
 router = APIRouter()
 
@@ -46,6 +47,7 @@ def borrar_cuenta(usuario_id: int, cuenta_id: int):
     return {"mensaje": "Cuenta de Moodle eliminada exitosamente"}
 
 def sync_task(usuario, contrasena, url, cuenta_id):
+    print(f"[DEBUG] sync_task lanzado para cuenta {cuenta_id}")
     # Marcar como "sincronizando"
     cursor.execute(
         "INSERT OR REPLACE INTO sincronizaciones (cuenta_id, estado) VALUES (?, ?)",
@@ -53,15 +55,43 @@ def sync_task(usuario, contrasena, url, cuenta_id):
     )
     conn.commit()
     try:
+        print("[DEBUG] Antes de llamar a sincronizar_cursos_y_tareas")
         cursos, tareas_por_curso = sincronizar_cursos_y_tareas(usuario, contrasena, url)
-        # ... (el resto de tu lógica para guardar cursos y tareas) ...
-        # (puedes copiar aquí el bloque de guardado que ya tienes)
-        # ...
+        print(f"[DEBUG] Cursos obtenidos: {len(cursos)}")
+
+        # Eliminar cursos y tareas anteriores de esta cuenta
+        cursor.execute("DELETE FROM tareas WHERE curso_id IN (SELECT id FROM cursos WHERE cuenta_id = ?)", (cuenta_id,))
+        cursor.execute("DELETE FROM cursos WHERE cuenta_id = ?", (cuenta_id,))
+
+        # Insertar cursos y mapear id real de Moodle a id en la base de datos
+        curso_id_map = {}
+        for curso in cursos:
+            cursor.execute(
+                "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (?, ?, ?)",
+                (cuenta_id, curso["nombre"], curso["url"])
+            )
+            curso_db_id = cursor.lastrowid
+            match = re.search(r"id=(\d+)", curso["url"])
+            if match:
+                curso_id_map[int(match.group(1))] = curso_db_id
+
+        # Insertar tareas asociadas a cada curso
+        for curso_id_real, tareas in tareas_por_curso.items():
+            curso_db_id = curso_id_map.get(curso_id_real)
+            if not curso_db_id:
+                continue
+            for tarea in tareas:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO tareas (curso_id, tarea_id, titulo, url) VALUES (?, ?, ?, ?)",
+                    (curso_db_id, tarea["tarea_id"], tarea["titulo"], tarea["url"])
+                )
+
         cursor.execute(
             "INSERT OR REPLACE INTO sincronizaciones (cuenta_id, estado) VALUES (?, ?)",
             (cuenta_id, "ok")
         )
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] Excepción en sync_task: {e}")
         cursor.execute(
             "INSERT OR REPLACE INTO sincronizaciones (cuenta_id, estado) VALUES (?, ?)",
             (cuenta_id, "error")

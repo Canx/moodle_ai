@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Route, Routes, Link } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes, Link, Navigate } from "react-router-dom";
 import RegistroUsuario from "./RegistroUsuario";
 import Usuario from "./Usuario";
 import CuentasMoodle from "./CuentasMoodle";
@@ -47,7 +47,16 @@ function App() {
           />
           <Route path="/registro" element={<RegistroUsuario setUsuarioId={setUsuarioId} />} />
           <Route path="/usuario/:usuarioId" element={<Usuario />} />
-          <Route path="/usuario/:usuarioId/cuentas" element={<CuentasMoodle />} />
+          <Route
+            path="/usuario/:usuarioId/cuentas"
+            element={
+              usuarioId ? (
+                <CuentasMoodle />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
         </Routes>
       </div>
     </Router>

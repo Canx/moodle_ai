@@ -4,7 +4,6 @@ from pydantic import BaseModel
 import sqlite3
 import requests
 from fastapi.middleware.cors import CORSMiddleware
-from scraper import obtener_cursos_desde_moodle
 from endpoints import usuarios, cuentas, cursos
 
 app = FastAPI()

@@ -1,10 +1,10 @@
-# backend/scraper.py
 from playwright.sync_api import sync_playwright
 import re
 
-
-def obtener_cursos_desde_moodle(usuario, contrasena, moodle_url):
+def sincronizar_cursos_y_tareas(usuario, contrasena, moodle_url):
     cursos = []
+    tareas_por_curso = {}
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         page = browser.new_page()
@@ -66,66 +66,9 @@ def obtener_cursos_desde_moodle(usuario, contrasena, moodle_url):
                 href = enlace.get_attribute("href")
                 cursos.append({"nombre": nombre, "url": href})
 
-        browser.close()
-    return cursos
-
-
-def obtener_tareas_desde_moodle(usuario: str, contrasena: str, moodle_url: str, curso_id: int):
-    """
-    Función de scraping para obtener las tareas de un curso específico desde Moodle.
-    """
-    import requests
-    from bs4 import BeautifulSoup
-
-    # Simular inicio de sesión en Moodle
-    session = requests.Session()
-    login_url = f"{moodle_url}/login/index.php"
-    login_response = session.post(login_url, data={"username": usuario, "password": contrasena})
-
-    if login_response.status_code != 200 or "login" in login_response.url:
-        raise Exception("Inicio de sesión fallido. Verifica las credenciales.")
-
-    # Acceder a la página del curso
-    curso_url = f"{moodle_url}/course/view.php?id={curso_id}"
-    response = session.get(curso_url)
-    if response.status_code != 200:
-        raise Exception("No se pudo acceder al curso. Verifica el ID del curso.")
-
-    # Parsear la página para obtener las tareas
-    soup = BeautifulSoup(response.text, "html.parser")
-    tareas = []
-    for tarea in soup.select(".activity.assign"):
-        nombre = tarea.select_one(".instancename").text.strip()
-        enlace = tarea.find("a")["href"]
-        tareas.append({"nombre": nombre, "enlace": enlace})
-
-    return tareas
-
-
-def sincronizar_cursos_y_tareas(usuario, contrasena, moodle_url):
-    cursos = []
-    tareas_por_curso = {}
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-
-        # Login
-        page.goto(f"{moodle_url}/login/index.php")
-        page.fill("input[name='username']", usuario)
-        page.fill("input[name='password']", contrasena)
-        page.click("button[type='submit']")
-        page.wait_for_load_state("networkidle", timeout=10000)
-
-        # Acceder a la tabla de cursos personalizada
-        page.goto(f"{moodle_url}/local/gvaaules/view.php", wait_until="networkidle")
-        filas = page.query_selector_all("table tbody tr")
-        for fila in filas:
-            enlace = fila.query_selector("td.c2 a")
-            if enlace:
-                nombre = enlace.inner_text()
-                href = enlace.get_attribute("href")
-                cursos.append({"nombre": nombre, "url": href})
+        print(f"[DEBUG] Cursos encontrados: {len(cursos)}")
+        for c in cursos:
+            print(f"[DEBUG] Curso: {c['nombre']} - {c['url']}")
 
         # Para cada curso, obtener tareas
         for curso in cursos:
@@ -133,19 +76,34 @@ def sincronizar_cursos_y_tareas(usuario, contrasena, moodle_url):
             if not match:
                 continue
             curso_id = int(match.group(1))
-            tareas = []
-            # Acceder a la página del curso
-            page.goto(f"{moodle_url}/course/view.php?id={curso_id}", wait_until="networkidle")
-            # Buscar tareas tipo "assign"
-            actividades = page.query_selector_all(".activity.assign")
+            tareas_dict = {}
+            try:
+                page.goto(f"{moodle_url}/course/view.php?id={curso_id}", wait_until="networkidle")
+            except Exception as e:
+                print(f"[ERROR] No se pudo acceder al curso {curso_id}: {e}")
+                continue
+            actividades = page.query_selector_all(".modtype_assign")
+            print(f"[DEBUG] Curso {curso_id}: {len(actividades)} actividades tipo 'assign' encontradas")
             for actividad in actividades:
+                enlace_elem = actividad.query_selector("a.aalink")
                 nombre_elem = actividad.query_selector(".instancename")
-                enlace_elem = actividad.query_selector("a")
-                if nombre_elem and enlace_elem:
-                    nombre_tarea = nombre_elem.inner_text().strip()
+                if enlace_elem and nombre_elem:
                     url_tarea = enlace_elem.get_attribute("href")
-                    tareas.append({"titulo": nombre_tarea, "url": url_tarea})
+                    nombre_tarea = nombre_elem.inner_text().strip()
+                    # Extrae el id de la tarea de la URL
+                    tarea_id_match = re.search(r"id=(\d+)", url_tarea)
+                    if tarea_id_match:
+                        tarea_id = int(tarea_id_match.group(1))
+                        if tarea_id not in tareas_dict:
+                            tareas_dict[tarea_id] = {
+                                "tarea_id": tarea_id,
+                                "titulo": nombre_tarea,
+                                "url": url_tarea
+                            }
+                            print(f"[DEBUG] Tarea encontrada: {nombre_tarea} - {url_tarea}")
+            tareas = list(tareas_dict.values())
             tareas_por_curso[curso_id] = tareas
+            print(f"[DEBUG] Total tareas únicas para curso {curso_id}: {len(tareas)}")
 
         browser.close()
     return cursos, tareas_por_curso
