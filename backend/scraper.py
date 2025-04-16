@@ -69,3 +69,33 @@ def obtener_cursos_desde_moodle(usuario, contrasena, moodle_url):
     return cursos
 
 
+def obtener_tareas_desde_moodle(usuario: str, contrasena: str, moodle_url: str, curso_id: int):
+    """
+    Función de scraping para obtener las tareas de un curso específico desde Moodle.
+    """
+    import requests
+    from bs4 import BeautifulSoup
+
+    # Simular inicio de sesión en Moodle
+    session = requests.Session()
+    login_url = f"{moodle_url}/login/index.php"
+    login_response = session.post(login_url, data={"username": usuario, "password": contrasena})
+
+    if login_response.status_code != 200 or "login" in login_response.url:
+        raise Exception("Inicio de sesión fallido. Verifica las credenciales.")
+
+    # Acceder a la página del curso
+    curso_url = f"{moodle_url}/course/view.php?id={curso_id}"
+    response = session.get(curso_url)
+    if response.status_code != 200:
+        raise Exception("No se pudo acceder al curso. Verifica el ID del curso.")
+
+    # Parsear la página para obtener las tareas
+    soup = BeautifulSoup(response.text, "html.parser")
+    tareas = []
+    for tarea in soup.select(".activity.assign"):
+        nombre = tarea.select_one(".instancename").text.strip()
+        enlace = tarea.find("a")["href"]
+        tareas.append({"nombre": nombre, "enlace": enlace})
+
+    return tareas
