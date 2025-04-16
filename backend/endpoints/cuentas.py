@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from database import cursor, conn
 from models import CuentaMoodle
-from scraper import obtener_cursos_desde_moodle
+from scraper import obtener_cursos_desde_moodle, sincronizar_cursos_y_tareas
 
 router = APIRouter()
 
@@ -45,9 +45,31 @@ def borrar_cuenta(usuario_id: int, cuenta_id: int):
     conn.commit()
     return {"mensaje": "Cuenta de Moodle eliminada exitosamente"}
 
+def sync_task(usuario, contrasena, url, cuenta_id):
+    # Marcar como "sincronizando"
+    cursor.execute(
+        "INSERT OR REPLACE INTO sincronizaciones (cuenta_id, estado) VALUES (?, ?)",
+        (cuenta_id, "sincronizando")
+    )
+    conn.commit()
+    try:
+        cursos, tareas_por_curso = sincronizar_cursos_y_tareas(usuario, contrasena, url)
+        # ... (el resto de tu lógica para guardar cursos y tareas) ...
+        # (puedes copiar aquí el bloque de guardado que ya tienes)
+        # ...
+        cursor.execute(
+            "INSERT OR REPLACE INTO sincronizaciones (cuenta_id, estado) VALUES (?, ?)",
+            (cuenta_id, "ok")
+        )
+    except Exception:
+        cursor.execute(
+            "INSERT OR REPLACE INTO sincronizaciones (cuenta_id, estado) VALUES (?, ?)",
+            (cuenta_id, "error")
+        )
+    conn.commit()
+
 @router.post("/api/cuentas/{cuenta_id}/sincronizar")
-def sincronizar_cursos(cuenta_id: int):
-    # Obtener datos de la cuenta
+def sincronizar_cursos_y_tareas_endpoint(cuenta_id: int, background_tasks: BackgroundTasks):
     cursor.execute(
         "SELECT usuario_moodle, contrasena_moodle, moodle_url FROM cuentas_moodle WHERE id = ?",
         (cuenta_id,),
@@ -57,21 +79,8 @@ def sincronizar_cursos(cuenta_id: int):
         raise HTTPException(status_code=404, detail="Cuenta no encontrada")
     usuario, contrasena, url = cuenta
 
-    # Hacer scraping
-    try:
-        cursos = obtener_cursos_desde_moodle(usuario, contrasena, url)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al sincronizar: {e}")
-
-    # Guardar cursos en la base de datos (puedes limpiar antes si quieres evitar duplicados)
-    cursor.execute("DELETE FROM cursos WHERE cuenta_id = ?", (cuenta_id,))
-    for curso in cursos:
-        cursor.execute(
-            "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (?, ?, ?)",
-            (cuenta_id, curso["nombre"], curso["url"])
-        )
-    conn.commit()
-    return {"mensaje": f"{len(cursos)} cursos sincronizados"}
+    background_tasks.add_task(sync_task, usuario, contrasena, url, cuenta_id)
+    return {"mensaje": "Sincronización iniciada en segundo plano"}
 
 @router.get("/api/cuentas/{cuenta_id}/cursos")
 def obtener_cursos_cuenta(cuenta_id: int):
@@ -81,3 +90,12 @@ def obtener_cursos_cuenta(cuenta_id: int):
     )
     cursos = cursor.fetchall()
     return [{"id": c[0], "nombre": c[1], "url": c[2]} for c in cursos]
+
+@router.get("/api/cuentas/{cuenta_id}/sincronizacion")
+def estado_sincronizacion(cuenta_id: int):
+    cursor.execute(
+        "SELECT estado FROM sincronizaciones WHERE cuenta_id = ?",
+        (cuenta_id,)
+    )
+    row = cursor.fetchone()
+    return {"estado": row[0] if row else "ok"}

@@ -1,5 +1,6 @@
 # backend/scraper.py
 from playwright.sync_api import sync_playwright
+import re
 
 
 def obtener_cursos_desde_moodle(usuario, contrasena, moodle_url):
@@ -99,3 +100,52 @@ def obtener_tareas_desde_moodle(usuario: str, contrasena: str, moodle_url: str, 
         tareas.append({"nombre": nombre, "enlace": enlace})
 
     return tareas
+
+
+def sincronizar_cursos_y_tareas(usuario, contrasena, moodle_url):
+    cursos = []
+    tareas_por_curso = {}
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        # Login
+        page.goto(f"{moodle_url}/login/index.php")
+        page.fill("input[name='username']", usuario)
+        page.fill("input[name='password']", contrasena)
+        page.click("button[type='submit']")
+        page.wait_for_load_state("networkidle", timeout=10000)
+
+        # Acceder a la tabla de cursos personalizada
+        page.goto(f"{moodle_url}/local/gvaaules/view.php", wait_until="networkidle")
+        filas = page.query_selector_all("table tbody tr")
+        for fila in filas:
+            enlace = fila.query_selector("td.c2 a")
+            if enlace:
+                nombre = enlace.inner_text()
+                href = enlace.get_attribute("href")
+                cursos.append({"nombre": nombre, "url": href})
+
+        # Para cada curso, obtener tareas
+        for curso in cursos:
+            match = re.search(r"id=(\d+)", curso["url"])
+            if not match:
+                continue
+            curso_id = int(match.group(1))
+            tareas = []
+            # Acceder a la página del curso
+            page.goto(f"{moodle_url}/course/view.php?id={curso_id}", wait_until="networkidle")
+            # Buscar tareas tipo "assign"
+            actividades = page.query_selector_all(".activity.assign")
+            for actividad in actividades:
+                nombre_elem = actividad.query_selector(".instancename")
+                enlace_elem = actividad.query_selector("a")
+                if nombre_elem and enlace_elem:
+                    nombre_tarea = nombre_elem.inner_text().strip()
+                    url_tarea = enlace_elem.get_attribute("href")
+                    tareas.append({"titulo": nombre_tarea, "url": url_tarea})
+            tareas_por_curso[curso_id] = tareas
+
+        browser.close()
+    return cursos, tareas_por_curso

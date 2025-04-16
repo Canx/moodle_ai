@@ -60,6 +60,14 @@ cursor.execute('''
     )
 ''')
 
+# Crear tabla sincronizaciones si no existe
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sincronizaciones (
+        cuenta_id INTEGER PRIMARY KEY,
+        estado TEXT NOT NULL
+    )
+''')
+
 conn.commit()
 
 # CORS para frontend

@@ -12,8 +12,9 @@ def obtener_cursos():
 
 @router.get("/api/cursos/{curso_id}/tareas")
 def obtener_tareas_curso(curso_id: int):
-    # Aquí deberías llamar a tu función de scraping o consultar la base de datos
-    # Ejemplo ficticio:
-    cursor.execute("SELECT nombre, enlace FROM tareas WHERE curso_id = ?", (curso_id,))
+    cursor.execute(
+        "SELECT id, titulo, url FROM tareas WHERE curso_id = ?",
+        (curso_id,)
+    )
     tareas = cursor.fetchall()
-    return [{"nombre": t[0], "enlace": t[1]} for t in tareas]
+    return [{"id": t[0], "titulo": t[1], "url": t[2]} for t in tareas]
