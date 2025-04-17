@@ -161,7 +161,13 @@ function CuentasMoodle() {
                           {tareas.length === 0 && <li>No hay tareas sincronizadas.</li>}
                           {tareas.map((tarea) => (
                             <li key={tarea.id || tarea.titulo}>
-                              <a href={tarea.url} target="_blank" rel="noopener noreferrer">{tarea.titulo}</a>
+                              <a
+                                href={`${cuentas.find(c => c.id === cuentaSeleccionada)?.moodle_url}/mod/assign/view.php?id=${tarea.tarea_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {tarea.titulo}
+                              </a>
                             </li>
                           ))}
                         </ul>

@@ -53,9 +53,10 @@ cursor.execute('''
     CREATE TABLE IF NOT EXISTS tareas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         curso_id INTEGER NOT NULL,
+        tarea_id INTEGER NOT NULL,
         titulo TEXT NOT NULL,
-        url TEXT,
-        FOREIGN KEY (curso_id) REFERENCES cursos (id)
+        FOREIGN KEY (curso_id) REFERENCES cursos (id),
+        UNIQUE (curso_id, tarea_id)
     )
 ''')
 

@@ -81,9 +81,13 @@ def sync_task(usuario, contrasena, url, cuenta_id):
             if not curso_db_id:
                 continue
             for tarea in tareas:
+                print(f"[DEBUG] Intentando insertar tarea: {tarea}")
+                if "tarea_id" not in tarea:
+                    print(f"[ERROR] tarea_id no encontrado en tarea: {tarea}")
+                    continue
                 cursor.execute(
-                    "INSERT OR IGNORE INTO tareas (curso_id, tarea_id, titulo, url) VALUES (?, ?, ?, ?)",
-                    (curso_db_id, tarea["tarea_id"], tarea["titulo"], tarea["url"])
+                    "INSERT OR IGNORE INTO tareas (curso_id, tarea_id, titulo) VALUES (?, ?, ?)",
+                    (curso_db_id, tarea["tarea_id"], tarea["titulo"])
                 )
 
         cursor.execute(

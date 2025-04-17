@@ -13,8 +13,8 @@ def obtener_cursos():
 @router.get("/api/cursos/{curso_id}/tareas")
 def obtener_tareas_curso(curso_id: int):
     cursor.execute(
-        "SELECT id, titulo, url FROM tareas WHERE curso_id = ?",
+        "SELECT id, tarea_id, titulo FROM tareas WHERE curso_id = ?",
         (curso_id,)
     )
     tareas = cursor.fetchall()
-    return [{"id": t[0], "titulo": t[1], "url": t[2]} for t in tareas]
+    return [{"id": t[0], "tarea_id": t[1], "titulo": t[2]} for t in tareas]
