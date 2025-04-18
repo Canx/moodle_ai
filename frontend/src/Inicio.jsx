@@ -4,8 +4,8 @@ import { Link } from "react-router-dom";
 export default function Inicio() {
   return (
     <div style={{minHeight: 'calc(100vh - 64px)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent'}}>
-      <div style={{maxWidth: 700, width: '100%', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '48px 36px', textAlign: 'center'}}>
-        <img src="/logo192.png" alt="Logo" style={{width: 90, marginBottom: 24, opacity: 0.9}} />
+      <div style={{width: '95%', margin: '0 auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '48px 36px', textAlign: 'center'}}>
+        <img src="/logo.svg" alt="Logo" style={{width: 90, height: 90, marginBottom: 24, opacity: 0.9, display: 'inline-block'}} />
         <h1 style={{color: '#1976d2', fontSize: '2.5rem', marginBottom: 18}}>Bienvenido a Moodle AI Tasks</h1>
         <p style={{color: '#444', fontSize: '1.18rem', marginBottom: 38}}>
           Gestiona y sincroniza tus tareas de Moodle de forma sencilla y visual.<br/>

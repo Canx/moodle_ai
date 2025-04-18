@@ -5,6 +5,14 @@ from models import Usuario, LoginRequest
 
 router = APIRouter()
 
+@router.get("/api/usuarios/{usuario_id}")
+def obtener_usuario(usuario_id: int):
+    cursor.execute("SELECT nombre FROM usuarios WHERE id = ?", (usuario_id,))
+    row = cursor.fetchone()
+    if row:
+        return {"nombre": row[0]}
+    raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
 @router.post("/api/login")
 def login(request: LoginRequest):
     cursor.execute(
