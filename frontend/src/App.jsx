@@ -3,6 +3,9 @@ import { BrowserRouter as Router, Route, Routes, Link, Navigate } from "react-ro
 import RegistroUsuario from "./RegistroUsuario";
 import Usuario from "./Usuario";
 import CuentasMoodle from "./CuentasMoodle";
+import CursosDeCuenta from "./CursosDeCuenta";
+import TareasDeCurso from "./TareasDeCurso";
+import TareaIndividual from "./TareaIndividual";
 import Login from "./Login";
 
 function App() {
@@ -57,6 +60,9 @@ function App() {
               )
             }
           />
+          <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos" element={<CursosDeCuenta />} />
+          <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas" element={<TareasDeCurso />} />
+          <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas/:tareaId/detalle" element={<TareaIndividual />} />
         </Routes>
       </div>
     </Router>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 
 function CuentasMoodle() {
   const { usuarioId } = useParams();
@@ -8,11 +8,7 @@ function CuentasMoodle() {
   const [usuarioMoodle, setUsuarioMoodle] = useState("");
   const [contrasenaMoodle, setContrasenaMoodle] = useState("");
   const [editId, setEditId] = useState(null);
-  const [cursos, setCursos] = useState([]);
-  const [cuentaSeleccionada, setCuentaSeleccionada] = useState(null);
-  const [tareas, setTareas] = useState([]);
-  const [cursoSeleccionado, setCursoSeleccionado] = useState(null);
-  const [sincronizando, setSincronizando] = useState(false);
+  const navigate = useNavigate();
 
   const obtenerCuentas = async () => {
     const response = await fetch(`/api/usuarios/${usuarioId}/cuentas`);
@@ -75,44 +71,6 @@ function CuentasMoodle() {
     setContrasenaMoodle("");
   };
 
-  const verCursos = async (cuentaId) => {
-    setCuentaSeleccionada(cuentaId);
-    const response = await fetch(`/api/cuentas/${cuentaId}/cursos`);
-    if (response.ok) {
-      const data = await response.json();
-      setCursos(data);
-    } else {
-      setCursos([]);
-    }
-  };
-
-  const verTareas = async (cursoId) => {
-    setCursoSeleccionado(cursoId);
-    const response = await fetch(`/api/cursos/${cursoId}/tareas`);
-    if (response.ok) {
-      const data = await response.json();
-      setTareas(data);
-    } else {
-      setTareas([]);
-    }
-  };
-
-  const sincronizar = async (cuentaId) => {
-    setSincronizando(true);
-    await fetch(`/api/cuentas/${cuentaId}/sincronizar`, { method: "POST" });
-    // Polling para saber cuándo termina
-    const checkEstado = async () => {
-      const res = await fetch(`/api/cuentas/${cuentaId}/sincronizacion`);
-      const data = await res.json();
-      if (data.estado === "sincronizando") {
-        setTimeout(checkEstado, 2000);
-      } else {
-        setSincronizando(false);
-        verCursos(cuentaId); // refresca cursos
-      }
-    };
-    checkEstado();
-  };
 
   useEffect(() => {
     obtenerCuentas();
@@ -131,52 +89,9 @@ function CuentasMoodle() {
             <button onClick={() => borrarCuenta(cuenta.id)} style={{ marginLeft: "5px", color: "red" }}>
               Borrar
             </button>
-            <button onClick={() => verCursos(cuenta.id)} style={{ marginLeft: "5px" }}>
+            <button onClick={() => navigate(`/usuario/${usuarioId}/cuentas/${cuenta.id}/cursos`)} style={{ marginLeft: "5px" }}>
               Ver
             </button>
-            {cuentaSeleccionada === cuenta.id && (
-              <div style={{ marginTop: "10px" }}>
-                <strong>
-                  Cursos sincronizados:
-                  <button
-                    style={{ marginLeft: "10px" }}
-                    onClick={() => sincronizar(cuenta.id)}
-                    disabled={sincronizando}
-                  >
-                    {sincronizando ? "Sincronizando..." : "Sincronizar"}
-                  </button>
-                </strong>
-                <ul>
-                  {cursos.length === 0 && <li>No hay cursos sincronizados.</li>}
-                  {cursos.map((curso) => (
-                    <li key={curso.id || curso.nombre}>
-                      <span
-                        style={{ cursor: "pointer", textDecoration: "underline", color: "blue" }}
-                        onClick={() => verTareas(curso.id)}
-                      >
-                        {curso.nombre}
-                      </span>
-                      {cursoSeleccionado === curso.id && (
-                        <ul>
-                          {tareas.length === 0 && <li>No hay tareas sincronizadas.</li>}
-                          {tareas.map((tarea) => (
-                            <li key={tarea.id || tarea.titulo}>
-                              <a
-                                href={`${cuentas.find(c => c.id === cuentaSeleccionada)?.moodle_url}/mod/assign/view.php?id=${tarea.tarea_id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {tarea.titulo}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </li>
         ))}
       </ul>
