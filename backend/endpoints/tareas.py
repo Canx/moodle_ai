@@ -57,17 +57,84 @@ def obtener_descripcion_tarea(tarea_id: int):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             url_tarea = f"{moodle_url}/mod/assign/view.php?id={tarea_id_moodle}"
-            descripcion_html = get_descripcion_tarea(browser, moodle_url, usuario_moodle, contrasena_moodle, url_tarea)
+            from scraper import get_tarea
+            tarea_data = get_tarea(browser, moodle_url, usuario_moodle, contrasena_moodle, tarea_id_moodle)
+            descripcion_html = tarea_data['descripcion']
+            entregas = tarea_data['entregas_pendientes']
+
+            from database import cursor as db_cursor
+            db_cursor.execute("SELECT id FROM tareas WHERE tarea_id = ? AND cuenta_id = ?", (tarea_id_moodle, cuenta_id))
+            tarea_db_row = db_cursor.fetchone()
+            tarea_db_id = tarea_db_row[0] if tarea_db_row else None
+            if tarea_db_id:
+                db_cursor.execute("DELETE FROM entregas WHERE tarea_id = ?", (tarea_db_id,))
+                for entrega in entregas:
+                    db_cursor.execute(
+                        "INSERT OR IGNORE INTO entregas (tarea_id, alumno_id, fecha_entrega, file_url, file_name, estado, nombre) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            tarea_db_id,
+                            entrega["alumno_id"],
+                            entrega["fecha_entrega"],
+                            entrega["archivos"][0]["url"] if entrega["archivos"] else None,
+                            entrega["archivos"][0]["nombre"] if entrega["archivos"] else None,
+                            entrega["estado"],
+                            entrega["nombre"]
+                        )
+                    )
+                from database import conn as db_conn
+                db_conn.commit()
             browser.close()
-        # Actualizar en base de datos
+        # Calcular el estado de la tarea según las entregas
+        if not entregas:
+            estado = 'sin_entregas'
+        elif any(e.get('estado', '').lower().startswith('enviado') or e.get('estado', '').lower().startswith('pendiente') for e in entregas):
+            estado = 'pendiente_calificar'
+        else:
+            estado = 'sin_pendientes'
         now_str = datetime.now().isoformat()
-        cursor.execute("UPDATE tareas SET descripcion = ?, fecha_sincronizacion = ?, estado = ? WHERE id = ?", (descripcion_html, now_str, "ok", tarea_id))
+        cursor.execute("UPDATE tareas SET descripcion = ?, fecha_sincronizacion = ?, estado = ? WHERE id = ?", (descripcion_html, now_str, estado, tarea_id))
         conn.commit()
-        return {"descripcion": descripcion_html, "estado": "ok"}
+        return {"descripcion": descripcion_html, "estado": estado}
     except Exception as e:
         cursor.execute("UPDATE tareas SET estado = ? WHERE id = ?", ("error", tarea_id))
         conn.commit()
         raise HTTPException(status_code=500, detail=f"Error al obtener descripción: {e}")
+
+@router.get("/api/tareas/{tarea_id}/entregas_pendientes")
+def obtener_entregas_pendientes_tarea(tarea_id: int):
+    cursor.execute(
+        "SELECT id, alumno_id, fecha_entrega, file_url, file_name, estado, nombre FROM entregas WHERE tarea_id = ? AND (estado IS NULL OR estado LIKE '%calificar%') ORDER BY fecha_entrega DESC",
+        (tarea_id,)
+    )
+    entregas = cursor.fetchall()
+    # Obtener la URL base de Moodle y el id de la tarea para construir el enlace manual
+    cursor.execute("SELECT cuenta_id, tarea_id FROM tareas WHERE id = ?", (tarea_id,))
+    tarea_row = cursor.fetchone()
+    moodle_url = None
+    tarea_id_moodle = None
+    if tarea_row:
+        cuenta_id, tarea_id_moodle = tarea_row
+        cursor.execute("SELECT moodle_url FROM cuentas_moodle WHERE id = ?", (cuenta_id,))
+        cuenta_row = cursor.fetchone()
+        if cuenta_row:
+            moodle_url = cuenta_row[0]
+    def generar_link_calificar(moodle_url, tarea_id_moodle, alumno_id):
+        if moodle_url and tarea_id_moodle and alumno_id:
+            return f"{moodle_url}/mod/assign/view.php?id={tarea_id_moodle}&action=grader&userid={alumno_id}"
+        return None
+    return [
+        {
+            "id": row[0],
+            "alumno_id": row[1],
+            "fecha_entrega": row[2],
+            "file_url": row[3],
+            "file_name": row[4],
+            "estado": row[5],
+            "nombre": row[6],
+            "link_calificar": generar_link_calificar(moodle_url, tarea_id_moodle, row[1])
+        }
+        for row in entregas
+    ]
 
 # Endpoint para iniciar la evaluación de una tarea
 @router.post("/api/tareas/{tarea_id}/evaluar")

@@ -88,7 +88,61 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
                     print(f"[DEBUG] Tarea encontrada: {nombre_tarea} - {url_tarea}")
     tareas = list(tareas_dict.values())
     print(f"[DEBUG] Total tareas únicas para curso {curso_id}: {len(tareas)}")
+
+    # Scraping de entregas pendientes para cada tarea
+    for tarea in tareas:
+        try:
+            grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea['tarea_id']}&action=grading"
+            page.goto(grading_url, wait_until="networkidle")
+            page.wait_for_selector("table.generaltable", timeout=5000)
+            entregas = get_entregas_pendientes(page, tarea['tarea_id'])
+            tarea['entregas_pendientes'] = entregas
+            print(f"[DEBUG] Entregas pendientes para tarea {tarea['titulo']}: {len(entregas)}")
+        except Exception as e:
+            print(f"[WARN] No se pudo scrapear entregas para tarea {tarea['titulo']}: {e}")
+            tarea['entregas_pendientes'] = []
     return tareas
+
+def get_entregas_pendientes(page, tarea_id):
+    entregas = []
+    filas = page.query_selector_all("table.generaltable tbody tr")
+    for fila in filas:
+        tr_class = fila.get_attribute("class")
+        alumno_id = None
+        if tr_class and tr_class.startswith("user"):
+            alumno_id = tr_class.replace("user", "")
+        # Nombre completo del alumno
+        nombre_a = fila.query_selector("td.c2 a")
+        nombre = nombre_a.inner_text().strip() if nombre_a else ""
+        email_td = fila.query_selector("td.c3")
+        email = email_td.inner_text().strip() if email_td else ""
+        estado_div = fila.query_selector("td.c4 div")
+        estado = estado_div.inner_text().strip() if estado_div else ""
+        fecha_entrega_td = fila.query_selector("td.c7")
+        fecha_entrega = fecha_entrega_td.inner_text().strip() if fecha_entrega_td else ""
+        archivos = []
+        archivos_td = fila.query_selector("td.c8")
+        if archivos_td:
+            enlaces = archivos_td.query_selector_all("a")
+            for enlace in enlaces:
+                archivo_nombre = enlace.inner_text().strip()
+                archivo_url = enlace.get_attribute("href")
+                archivos.append({"nombre": archivo_nombre, "url": archivo_url})
+        # Enlace de calificación manual
+        link_calificar_a = fila.query_selector("td.c5 a.btn.btn-primary")
+        link_calificar = link_calificar_a.get_attribute("href") if link_calificar_a else None
+        # Añadir entrega si hay estado o archivo
+        if nombre or archivos or estado:
+            entregas.append({
+                "alumno_id": alumno_id,
+                "nombre": nombre,
+                "email": email,
+                "estado": estado,
+                "fecha_entrega": fecha_entrega,
+                "archivos": archivos,
+                "link_calificar": link_calificar
+            })
+    return entregas
 
 def sincronizar_cursos_y_tareas(cuenta_id, usuario, contrasena, moodle_url):
     tareas_por_curso = {}
@@ -107,19 +161,40 @@ def sincronizar_cursos_y_tareas(cuenta_id, usuario, contrasena, moodle_url):
         browser.close()
     return cursos, tareas_por_curso
 
-def get_descripcion_tarea(browser, moodle_url, usuario, contrasena, url_tarea):
+def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
     """
-    Hace login y obtiene la descripción HTML de una tarea concreta.
+    Hace login y obtiene tanto la descripción HTML como las entregas pendientes de una tarea concreta.
     """
     page = browser.new_page()
     login_moodle(page, moodle_url, usuario, contrasena)
     descripcion_html = None
+    entregas_pendientes = []
     try:
+        url_tarea = f"{moodle_url}/mod/assign/view.php?id={tarea_id}"
         page.goto(url_tarea, wait_until="networkidle")
-        page.wait_for_selector('div.activity-description#intro', timeout=5000)
-        descripcion_html = page.inner_html('div.activity-description#intro')
-    except Exception as e:
-        print(f"[WARN] No se pudo obtener descripción para tarea en {url_tarea}: {e}")
+        try:
+            page.wait_for_selector('div.activity-description#intro', timeout=5000)
+            descripcion_html = page.inner_html('div.activity-description#intro')
+        except Exception as e:
+            print(f"[WARN] No se pudo obtener descripción para tarea en {url_tarea}: {e}")
+        # Ir a la vista de grading para las entregas
+        grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading"
+        page.goto(grading_url, wait_until="networkidle")
+        try:
+            page.wait_for_selector("table.generaltable", timeout=5000)
+            entregas_pendientes = get_entregas_pendientes(page, tarea_id)
+        except Exception as e:
+            print(f"[WARN] No se pudo obtener entregas para tarea en {grading_url}: {e}")
     finally:
         page.close()
-    return descripcion_html
+    return {"descripcion": descripcion_html, "entregas_pendientes": entregas_pendientes}
+
+def get_descripcion_tarea(browser, moodle_url, usuario, contrasena, url_tarea):
+    """
+    Wrapper legacy para obtener solo la descripción (compatibilidad).
+    """
+    import re
+    match = re.search(r'id=(\d+)', url_tarea)
+    tarea_id = int(match.group(1)) if match else None
+    datos = get_tarea(browser, moodle_url, usuario, contrasena, tarea_id)
+    return datos['descripcion']

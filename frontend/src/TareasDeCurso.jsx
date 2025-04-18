@@ -63,6 +63,22 @@ function TareasDeCurso() {
             <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas/${tarea.id}/detalle`} style={{ color: '#1976d2', fontWeight: 'bold', fontSize: '1.1rem', textDecoration: 'none', marginBottom: 8 }}>
               {tarea.titulo}
             </Link>
+            <span style={{
+              display: 'inline-block',
+              marginTop: 6,
+              padding: '4px 10px',
+              borderRadius: 12,
+              fontSize: '0.95em',
+              fontWeight: 500,
+              color: '#fff',
+              background: tarea.estado === 'pendiente_calificar' ? '#f39c12' : tarea.estado === 'sin_entregas' ? '#888' : tarea.estado === 'sin_pendientes' ? '#27ae60' : '#bbb',
+              alignSelf: 'flex-start'
+            }}>
+              {tarea.estado === 'pendiente_calificar' && 'Pendiente de calificar'}
+              {tarea.estado === 'sin_entregas' && 'Sin entregas'}
+              {tarea.estado === 'sin_pendientes' && 'Sin pendientes'}
+              {!['pendiente_calificar','sin_entregas','sin_pendientes'].includes(tarea.estado) && (tarea.estado || 'Desconocido')}
+            </span>
           </div>
         ))}
       </div>

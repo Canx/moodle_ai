@@ -89,6 +89,7 @@ cursor.execute('''
         estado TEXT,
         nota REAL,
         feedback TEXT,
+        nombre TEXT,
         FOREIGN KEY (tarea_id) REFERENCES tareas (id),
         UNIQUE (tarea_id, alumno_id)
     )

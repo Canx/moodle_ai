@@ -5,6 +5,9 @@ function TareaIndividual() {
   const { tareaId, cursoId, cuentaId, usuarioId } = useParams();
   const [tarea, setTarea] = useState(null);
   const [desc, setDesc] = useState(null);
+  const [entregas, setEntregas] = useState([]);
+  const [descOpen, setDescOpen] = useState(false);
+  const [entregasOpen, setEntregasOpen] = useState(false);
 
   // Mostrar la descripción local al cargar la tarea si existe
   useEffect(() => {
@@ -12,6 +15,12 @@ function TareaIndividual() {
       setDesc(tarea.descripcion);
     }
   }, [tarea]);
+
+  useEffect(() => {
+    if (tareaId) {
+      fetch(`/api/tareas/${tareaId}/entregas_pendientes`).then(res => res.json()).then(setEntregas);
+    }
+  }, [tareaId]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
@@ -39,6 +48,12 @@ function TareaIndividual() {
       if (res.ok) {
         const data = await res.json();
         setDesc(data.descripcion);
+        // Tras sincronizar, recarga entregas pendientes
+        const entregasRes = await fetch(`/api/tareas/${tareaId}/entregas_pendientes`);
+        if (entregasRes.ok) {
+          const entregasData = await entregasRes.json();
+          setEntregas(entregasData);
+        }
       } else {
         setError("No se pudo obtener la descripción");
       }
@@ -47,6 +62,7 @@ function TareaIndividual() {
     }
     setLoading(false);
   };
+
 
   if (error) return <div style={{color:'red'}}>{error}</div>;
   if (!tarea) return <div>Cargando tarea...</div>;
@@ -76,7 +92,60 @@ function TareaIndividual() {
         {loading ? "Sincronizando..." : "Sincronizar"}
       </button>
       {error && <div style={{ color: "#d32f2f", background: '#fff0f0', borderRadius: 6, padding: '8px 14px', marginBottom: 10 }}>{error}</div>}
-      {desc && <div style={{ marginTop: "10px", width: '100%', color: '#444', fontSize: '1.08rem', background: '#f7f7fa', borderRadius: 8, padding: 18 }} dangerouslySetInnerHTML={{ __html: desc }} />}
+      {/* Descripción colapsable */}
+      <div style={{marginBottom: 18}}>
+        <button onClick={() => setDescOpen(o => !o)} style={{background: '#1976d2', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 16px', fontWeight: 600, fontSize: '1rem', cursor: 'pointer', marginBottom: 6}}>
+          {descOpen ? 'Ocultar descripción' : 'Mostrar descripción'}
+        </button>
+        {descOpen && desc && (
+          <div style={{ marginTop: "10px", width: '100%', color: '#444', fontSize: '1.08rem', background: '#f7f7fa', borderRadius: 8, padding: 18 }} dangerouslySetInnerHTML={{ __html: desc }} />
+        )}
+      </div>
+      {/* Entregas pendientes colapsable */}
+      <div>
+        <button onClick={() => setEntregasOpen(o => !o)} style={{background: '#1976d2', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 16px', fontWeight: 600, fontSize: '1rem', cursor: 'pointer', marginBottom: 6}}>
+          {entregasOpen ? 'Ocultar entregas pendientes' : `Ver entregas pendientes (${entregas.length})`}
+        </button>
+        {entregasOpen && (
+          entregas.length === 0 ? <div style={{background:'#f7f7fa', borderRadius:8, padding:12, color:'#888'}}>No hay entregas pendientes de calificar.</div> :
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%', background:'#f7f7fa', borderRadius:8, marginTop:8, fontSize:'0.98rem'}}>
+              <thead>
+                <tr style={{background:'#e3eefd'}}>
+                  <th style={{padding:'6px 10px'}}>Alumno</th>
+                  <th style={{padding:'6px 10px'}}>Fecha entrega</th>
+                  <th style={{padding:'6px 10px'}}>Archivo</th>
+                  <th style={{padding:'6px 10px'}}>Estado</th>
+                  <th style={{padding:'6px 10px'}}>Calificar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entregas.map((entrega, idx) => (
+                  <tr key={idx}>
+                    <td style={{padding:'6px 10px'}}>{entrega.nombre || 'Sin nombre'}</td>
+                    <td style={{padding:'6px 10px'}}>{entrega.fecha_entrega}</td>
+                    <td style={{padding:'6px 10px'}}>
+                      {entrega.archivos && entrega.archivos.length > 0 ? (
+                        <a href={entrega.archivos[0].url} target="_blank" rel="noopener noreferrer">{entrega.archivos[0].nombre}</a>
+                      ) : 'Sin archivo'}
+                    </td>
+                    <td style={{padding:'6px 10px'}}>{entrega.estado}</td>
+                    <td style={{padding:'6px 10px'}}>
+                      {entrega.link_calificar && (
+                        <a href={entrega.link_calificar} target="_blank" rel="noopener noreferrer" style={{marginRight:8, background:'#1976d2', color:'#fff', padding:'4px 10px', borderRadius:6, textDecoration:'none', fontWeight:500}}>Manual</a>
+                      )}
+                      <button onClick={async()=>{
+                        await fetch(`/api/tareas/${tareaId}/evaluar`, {method:'POST'});
+                        alert('Calificación automática iniciada.');
+                      }} style={{background:'#27ae60', color:'#fff', padding:'4px 10px', border:'none', borderRadius:6, fontWeight:500, cursor:'pointer'}}>Auto</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
