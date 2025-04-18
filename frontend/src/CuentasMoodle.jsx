@@ -71,14 +71,13 @@ function CuentasMoodle() {
     setContrasenaMoodle("");
   };
 
-
   useEffect(() => {
     obtenerCuentas();
   }, []);
 
   return (
-    <div>
-      <h2>Mis Cuentas de Moodle</h2>
+    <div style={{width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', textAlign: 'center'}}>
+      <h2 style={{color: '#1976d2', fontSize: '2rem', marginBottom: 18}}>Mis Cuentas de Moodle</h2>
       <ul>
         {cuentas.map((cuenta) => (
           <li key={cuenta.id}>

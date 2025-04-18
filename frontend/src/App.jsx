@@ -7,6 +7,7 @@ import CursosDeCuenta from "./CursosDeCuenta";
 import TareasDeCurso from "./TareasDeCurso";
 import TareaIndividual from "./TareaIndividual";
 import Login from "./Login";
+import Inicio from "./Inicio";
 
 function App() {
   const [usuarioId, setUsuarioId] = useState(null);
@@ -27,22 +28,27 @@ function App() {
 
   return (
     <Router>
-      <div>
-        <nav>
-          <Link to="/">Inicio</Link>
-          {!usuarioId && <Link to="/registro">Registro</Link>}
+      <header style={{position: 'fixed', top: 0, left: 0, width: '100%', background: '#fff', boxShadow: '0 2px 12px #0001', zIndex: 1000, padding: '0 0', borderBottom: '1px solid #e5e5e5'}}>
+        <nav style={{display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 28, padding: '16px 36px', maxWidth: 1200, margin: '0 auto'}}>
+          <Link to="/" style={{color: '#1976d2', textDecoration: 'none', fontWeight: 600, fontSize: '1.13rem', letterSpacing: '.01em'}}>Inicio</Link>
+          {!usuarioId && <Link to="/registro" style={{color: '#1976d2', textDecoration: 'none', fontWeight: 600, fontSize: '1.13rem'}}>Registro</Link>}
           {usuarioId && (
             <>
-              <Link to={`/usuario/${usuarioId}`}>Mi Cuenta</Link>
-              <button onClick={cerrarSesion} style={{ marginLeft: "10px" }}>
+              <Link to={`/usuario/${usuarioId}`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 600, fontSize: '1.13rem'}}>Mi Cuenta</Link>
+              <button onClick={cerrarSesion} style={{ marginLeft: 18, background: '#e3eefd', color: '#1976d2', border: 'none', borderRadius: 6, padding: '8px 18px', fontWeight: 600, fontSize: '1.05rem', cursor: 'pointer', transition: 'background 0.2s' }}
+                onMouseOver={e => e.currentTarget.style.background='#d1e2fc'}
+                onMouseOut={e => e.currentTarget.style.background='#e3eefd'}>
                 Cerrar Sesión
               </button>
             </>
           )}
         </nav>
+      </header>
+      <div style={{paddingTop: 64}}>
         <Routes>
+          <Route path="/" element={<Inicio />} />
           <Route
-            path="/"
+            path="/login"
             element={<Login setUsuarioId={(id) => {
               setUsuarioId(id);
               localStorage.setItem("usuarioId", id); // Guardar en localStorage

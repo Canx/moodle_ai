@@ -25,8 +25,8 @@ function Login({ setUsuarioId }) {
   };
 
   return (
-    <div>
-      <h2>Iniciar Sesión</h2>
+    <div style={{width: '95%', margin: '60px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '48px 36px', textAlign: 'center'}}>
+      <h2 style={{color: '#1976d2', fontSize: '2rem', marginBottom: 18}}>Iniciar Sesión</h2>
       {mensaje && <p className="text-red-500">{mensaje}</p>}
       <input
         type="text"

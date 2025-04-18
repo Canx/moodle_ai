@@ -43,27 +43,37 @@ function TareasDeCurso() {
   };
 
   return (
-    <div>
+    <div style={{width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', textAlign: 'center'}}>
+      <div style={{display:'flex', gap:'16px', marginBottom:'18px'}}>
+        <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos`} style={{ textDecoration: "none", color: "#1976d2", fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none' }}>
+          Volver a cursos
+        </Link>
+        <button onClick={() => navigate(-1)} style={{ backgroundColor: "#4CAF50", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "5px", cursor: "pointer", fontWeight: 500 }}>
+          Atrás
+        </button>
+      </div>
       <h2>Tareas del Curso</h2>
-      <button onClick={sincronizarTareas} disabled={sincronizando} style={{ marginBottom: "10px" }}>
+      <button onClick={sincronizarTareas} disabled={sincronizando} style={{ marginBottom: "10px", backgroundColor: "#4CAF50", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "5px", cursor: "pointer" }}>
         {sincronizando ? "Sincronizando..." : "Sincronizar tareas"}
       </button>
-      <ul>
-        {tareas.length === 0 && <li>No hay tareas sincronizadas.</li>}
-        {tareas.map((tarea, idx) => (
-          <li key={tarea.id || tarea.titulo}>
-            <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas/${tarea.id}/detalle`} style={{ color: "blue", textDecoration: "underline" }}>
+      <div style={{display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '20px'}}>
+        {tareas.length === 0 && <div style={{background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px #0001', padding: '18px 24px', minWidth: 260, maxWidth: 340, flex: '1 0 260px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'}}>No hay tareas sincronizadas.</div>}
+        {tareas.map((tarea) => (
+          <div key={tarea.id || tarea.nombre} style={{background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px #0001', padding: '18px 24px', minWidth: 260, maxWidth: 340, flex: '1 0 260px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'}}>
+            <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas/${tarea.id}/detalle`} style={{ color: '#1976d2', fontWeight: 'bold', fontSize: '1.1rem', textDecoration: 'none', marginBottom: 8 }}>
               {tarea.titulo}
             </Link>
-          </li>
+          </div>
         ))}
-      </ul>
-      <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos`} style={{ marginTop: "10px", display: "inline-block" }}>
-        Volver a cursos
-      </Link>
-      <button onClick={() => navigate(-1)} style={{ marginLeft: "10px" }}>
-        Atrás
-      </button>
+      </div>
+      <div style={{display:'flex', gap:'16px', marginTop:'18px'}}>
+        <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos`} style={{ textDecoration: "none", color: "#1976d2", fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none' }}>
+          Volver a cursos
+        </Link>
+        <button onClick={() => navigate(-1)} style={{ backgroundColor: "#4CAF50", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "5px", cursor: "pointer", fontWeight: 500 }}>
+          Atrás
+        </button>
+      </div>
     </div>
   );
 }
