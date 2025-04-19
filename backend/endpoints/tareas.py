@@ -3,9 +3,10 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 from models import Tarea
-from models_db import TareaDB
+from models_db import TareaDB, CuentaMoodleDB, EntregaDB
 from database import get_db
-from scraper import sync_playwright, get_descripcion_tarea
+from scraper import get_tarea
+from playwright.sync_api import sync_playwright
 import re
 import time
 from datetime import datetime, timedelta
@@ -47,31 +48,23 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
         raise HTTPException(status_code=404, detail="Tarea no encontrada tras sincronizar el curso indicado")
     raise HTTPException(status_code=404, detail="Tarea no encontrada y no se puede sincronizar porque no se conoce el curso")
 
-@router.get("/api/tareas/{tarea_id}/descripcion")
-def obtener_descripcion_tarea(tarea_id: int, db: Session = Depends(get_db)):
+@router.post("/api/tareas/{tarea_id}/sincronizar")
+def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
     tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
     if not tarea:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
-    # Si la descripción existe y es reciente (<3 días), devolverla
-    if tarea.descripcion and tarea.fecha_sincronizacion:
-        try:
-            fecha_dt = datetime.fromisoformat(tarea.fecha_sincronizacion)
-            if fecha_dt > datetime.now() - timedelta(days=3):
-                return {"descripcion": tarea.descripcion, "estado": "ok"}
-        except Exception:
-            pass
-    # 2. Si la descripción no existe o no es reciente, obtener credenciales de la cuenta Moodle asociada
-    cursor.execute("SELECT moodle_url, usuario_moodle, contrasena_moodle FROM cuentas_moodle WHERE id = ?", (tarea.cuenta_id,))
-    cuenta = cursor.fetchone()
+    # 2. Obtener credenciales de la cuenta Moodle asociada
+    cuenta = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == tarea.cuenta_id).first()
     if not cuenta:
         raise HTTPException(status_code=404, detail="Cuenta Moodle asociada no encontrada")
-    moodle_url, usuario_moodle, contrasena_moodle = cuenta
+    moodle_url = cuenta.moodle_url
+    usuario_moodle = cuenta.usuario_moodle
+    contrasena_moodle = cuenta.contrasena_moodle
     # 3. Hacer scraping bajo demanda con login
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             url_tarea = f"{moodle_url}/mod/assign/view.php?id={tarea.tarea_id}"
-            from scraper import get_tarea
             tarea_data = get_tarea(browser, moodle_url, usuario_moodle, contrasena_moodle, tarea.tarea_id)
             descripcion_html = tarea_data['descripcion']
             entregas = tarea_data['entregas_pendientes']

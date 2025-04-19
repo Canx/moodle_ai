@@ -40,11 +40,11 @@ function TareaIndividual() {
     fetchTarea();
   }, [tareaId]);
 
-  const sincronizarDescripcion = async () => {
+  const sincronizarTarea = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tareas/${tareaId}/descripcion`);
+      const res = await fetch(`/api/tareas/${tareaId}/sincronizar`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         setDesc(data.descripcion);
@@ -55,7 +55,7 @@ function TareaIndividual() {
           setEntregas(entregasData);
         }
       } else {
-        setError("No se pudo obtener la descripción");
+        setError("No se pudo sincronizar la tarea");
       }
     } catch (e) {
       setError("Error de red");
@@ -100,8 +100,8 @@ function TareaIndividual() {
         </button>
       </div>
       <h2 style={{fontSize: '2rem', color: '#1976d2', marginBottom: 18, textAlign: 'center'}}>{tarea.titulo}</h2>
-      <button onClick={sincronizarDescripcion} disabled={loading} style={{ background: '#1976d2', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontWeight: 600, fontSize: '1rem', cursor: loading ? 'not-allowed' : 'pointer', marginBottom: '18px', boxShadow: loading ? 'none' : '0 2px 6px #1976d233', opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
-        {loading ? "Sincronizando..." : "Sincronizar"}
+      <button onClick={sincronizarTarea} disabled={loading} style={{ background: '#1976d2', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontWeight: 600, fontSize: '1rem', cursor: loading ? 'not-allowed' : 'pointer', marginBottom: '18px', boxShadow: loading ? 'none' : '0 2px 6px #1976d233', opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
+        {loading ? "Sincronizando..." : "Sincronizar tarea"}
       </button>
       {error && <div style={{ color: "#d32f2f", background: '#fff0f0', borderRadius: 6, padding: '8px 14px', marginBottom: 10 }}>{error}</div>}
       {/* Descripción colapsable */}

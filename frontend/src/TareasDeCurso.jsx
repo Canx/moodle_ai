@@ -96,16 +96,16 @@ function TareaItem({ tarea, moodleUrl }) {
     setOpen((prev) => !prev);
   };
 
-  const sincronizarDescripcion = async () => {
+  const sincronizarTarea = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tareas/${tarea.id}/descripcion`);
+      const res = await fetch(`/api/tareas/${tarea.id}/sincronizar`, { method: "POST" });
       if (res.ok) {
         const data = await res.json();
         setDesc(data.descripcion);
       } else {
-        setError("No se pudo obtener la descripción");
+        setError("No se pudo sincronizar la tarea");
       }
     } catch (e) {
       setError("Error de red");
@@ -125,8 +125,8 @@ function TareaItem({ tarea, moodleUrl }) {
           </a>
         )}
       </div>
-      <button onClick={sincronizarDescripcion} disabled={loading} style={{ marginTop: "5px", marginBottom: "5px" }}>
-        {loading ? "Sincronizando..." : "Sincronizar descripción"}
+      <button onClick={sincronizarTarea} disabled={loading} style={{ marginTop: "5px", marginBottom: "5px" }}>
+        {loading ? "Sincronizando..." : "Sincronizar tarea"}
       </button>
       {error && <div style={{ color: "red" }}>{error}</div>}
       {desc && <div style={{ marginLeft: "20px" }} dangerouslySetInnerHTML={{ __html: desc }} />}
