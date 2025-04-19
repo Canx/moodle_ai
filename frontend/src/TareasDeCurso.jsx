@@ -4,7 +4,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 function TareasDeCurso() {
   const { cursoId, cuentaId, usuarioId } = useParams();
   const [tareas, setTareas] = useState([]);
-  const [moodleUrl, setMoodleUrl] = useState("");
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -17,15 +17,7 @@ function TareasDeCurso() {
         setTareas([]);
       }
     };
-    const fetchCuenta = async () => {
-      const response = await fetch(`/api/cuentas/${cuentaId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setMoodleUrl(data.moodle_url);
-      }
-    };
     fetchTareas();
-    fetchCuenta();
   }, [cursoId, cuentaId]);
 
   const [sincronizando, setSincronizando] = useState(false);

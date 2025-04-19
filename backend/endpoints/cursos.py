@@ -1,47 +1,45 @@
-from fastapi import APIRouter, HTTPException
-from database import cursor
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from models_db import CursoDB, CuentaMoodleDB, TareaDB, EntregaDB
+from database import get_db
 from scraper import get_tareas_de_curso, login_moodle
 from playwright.sync_api import sync_playwright
 
 router = APIRouter()
 
 @router.get("/api/cursos")
-def obtener_cursos():
-    cursor.execute("SELECT id, nombre FROM cursos")
-    cursos = cursor.fetchall()
-    return [{"id": c[0], "nombre": c[1]} for c in cursos]
+def obtener_cursos(db: Session = Depends(get_db)):
+    cursos = db.query(CursoDB).all()
+    return [{"id": c.id, "nombre": c.nombre} for c in cursos]
 
 @router.post("/api/cursos/{curso_id}/sincronizar_tareas")
-def sincronizar_tareas_curso(curso_id: int):
+def sincronizar_tareas_curso(curso_id: int, db: Session = Depends(get_db)):
     # Obtener cuenta asociada al curso
-    cursor.execute("SELECT cuenta_id, url FROM cursos WHERE id = ?", (curso_id,))
-    row = cursor.fetchone()
-    if not row:
+    curso = db.query(CursoDB).filter(CursoDB.id == curso_id).first()
+    if not curso:
         raise HTTPException(status_code=404, detail="Curso no encontrado")
-    cuenta_id, url_curso = row
-    cursor.execute("SELECT usuario_moodle, contrasena_moodle, moodle_url FROM cuentas_moodle WHERE id = ?", (cuenta_id,))
-    cuenta = cursor.fetchone()
+    cuenta = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == curso.cuenta_id).first()
     if not cuenta:
         raise HTTPException(status_code=404, detail="Cuenta no encontrada")
-    usuario, contrasena, moodle_url = cuenta
+    usuario = cuenta.usuario_moodle
+    contrasena = cuenta.contrasena_moodle
+    moodle_url = cuenta.moodle_url
+    url_curso = curso.url
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             login_moodle(page, moodle_url, usuario, contrasena)
-            # Recuperar objeto curso necesario para get_tareas_de_curso
-            cursor.execute("SELECT nombre, url FROM cursos WHERE id = ?", (curso_id,))
-            curso_row = cursor.fetchone()
-            curso_obj = {"nombre": curso_row[0], "url": curso_row[1]}
-            tareas = get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso_obj)
+            curso_obj = {"nombre": curso.nombre, "url": curso.url}
+            tareas = get_tareas_de_curso(browser, page, moodle_url, cuenta.id, curso_obj)
             # Borrar tareas previas del curso
-            cursor.execute("DELETE FROM tareas WHERE curso_id = ?", (curso_id,))
+            db.query(TareaDB).filter(TareaDB.curso_id == curso_id).delete()
+            db.commit()
             # Borrar entregas antiguas de todas las tareas de este curso
-            cursor.execute("SELECT id FROM tareas WHERE curso_id = ?", (curso_id,))
-            tarea_ids = [row[0] for row in cursor.fetchall()]
+            tarea_ids = [t.id for t in db.query(TareaDB).filter(TareaDB.curso_id == curso_id).all()]
             if tarea_ids:
-                cursor.execute(f"DELETE FROM entregas WHERE tarea_id IN ({','.join(['?']*len(tarea_ids))})", tarea_ids)
-
+                db.query(EntregaDB).filter(EntregaDB.tarea_id.in_(tarea_ids)).delete(synchronize_session=False)
+                db.commit()
             for tarea in tareas:
                 # Determinar el estado de la tarea
                 entregas = tarea.get('entregas_pendientes', [])
@@ -51,40 +49,37 @@ def sincronizar_tareas_curso(curso_id: int):
                     estado = 'pendiente_calificar'
                 else:
                     estado = 'sin_pendientes'
-                cursor.execute(
-                    "INSERT OR REPLACE INTO tareas (cuenta_id, curso_id, tarea_id, titulo, estado, calificacion_maxima) VALUES (?, ?, ?, ?, ?, ?)",
-                    (cuenta_id, curso_id, tarea["tarea_id"], tarea["titulo"], estado, tarea.get("calificacion_maxima"))
+                nueva_tarea = TareaDB(
+                    cuenta_id=cuenta.id,
+                    curso_id=curso_id,
+                    tarea_id=tarea["tarea_id"],
+                    titulo=tarea["titulo"],
+                    estado=estado,
+                    calificacion_maxima=tarea.get("calificacion_maxima")
                 )
+                db.add(nueva_tarea)
+                db.commit()
+                db.refresh(nueva_tarea)
                 print(f"[DEBUG] Entregas pendientes para tarea '{tarea['titulo']}': {len(tarea.get('entregas_pendientes', []))}")
-                # Guardar entregas en la tabla entregas
-                cursor.execute("SELECT id FROM tareas WHERE curso_id = ? AND tarea_id = ?", (curso_id, tarea["tarea_id"]))
-                tarea_db_row = cursor.fetchone()
-                tarea_db_id = tarea_db_row[0] if tarea_db_row else None
-                if tarea_db_id:
-                    for entrega in tarea.get('entregas_pendientes', []):
-                        cursor.execute(
-                            "INSERT OR IGNORE INTO entregas (tarea_id, alumno_id, fecha_entrega, file_url, file_name, estado) VALUES (?, ?, ?, ?, ?, ?)",
-                            (
-                                tarea_db_id,
-                                entrega["alumno_id"],
-                                entrega["fecha_entrega"],
-                                entrega["archivos"][0]["url"] if entrega["archivos"] else None,
-                                entrega["archivos"][0]["nombre"] if entrega["archivos"] else None,
-                                entrega["estado"]
-                            )
-                        )
-            from database import conn
-            conn.commit()
+                # Guardar entregas en la tabla entregas (si las hay)
+                for entrega in tarea.get('entregas_pendientes', []):
+                    nueva_entrega = EntregaDB(
+                        tarea_id=nueva_tarea.id,
+                        alumno_id=entrega.get('alumno_id'),
+                        fecha_entrega=entrega.get('fecha_entrega'),
+                        file_url=entrega.get('archivos', [{}])[0].get('url') if entrega.get('archivos') else None,
+                        file_name=entrega.get('archivos', [{}])[0].get('nombre') if entrega.get('archivos') else None,
+                        estado=entrega.get('estado'),
+                        nombre=entrega.get('nombre')
+                    )
+                    db.add(nueva_entrega)
+                db.commit()
             browser.close()
-        return {"mensaje": "Tareas sincronizadas", "tareas": tareas}
+        return {"mensaje": "Sincronización completada"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al sincronizar tareas: {e}")
 
 @router.get("/api/cursos/{curso_id}/tareas")
-def obtener_tareas_curso(curso_id: int):
-    cursor.execute(
-        "SELECT id, tarea_id, titulo, descripcion, estado FROM tareas WHERE curso_id = ?",
-        (curso_id,)
-    )
-    tareas = cursor.fetchall()
-    return [{"id": t[0], "tarea_id": t[1], "titulo": t[2], "descripcion": t[3], "estado": t[4]} for t in tareas]  # url se genera en frontend
+def obtener_tareas_curso(curso_id: int, db: Session = Depends(get_db)):
+    tareas = db.query(TareaDB).filter(TareaDB.curso_id == curso_id).all()
+    return [{"id": t.id, "tarea_id": t.tarea_id, "titulo": t.titulo, "descripcion": t.descripcion, "estado": t.estado} for t in tareas]

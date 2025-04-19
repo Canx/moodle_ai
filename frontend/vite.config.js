@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8000', // URL del backend
+        target: 'http://backend:8000', // URL del backend dentro de Docker
         changeOrigin: true,
         secure: false,
       },

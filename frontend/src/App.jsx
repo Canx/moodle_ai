@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Route, Routes, Link, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes, Link, Navigate, useNavigate } from "react-router-dom";
 import RegistroUsuario from "./RegistroUsuario";
 import Usuario from "./Usuario";
+import { Navbar, Nav, Container } from "react-bootstrap";
 import CuentasMoodle from "./CuentasMoodle";
 import CursosDeCuenta from "./CursosDeCuenta";
 import TareasDeCurso from "./TareasDeCurso";
@@ -20,69 +21,69 @@ function App() {
     }
   }, []);
 
-  // Manejar el cierre de sesión
+  return (
+    <Router>
+      <AppRoutes usuarioId={usuarioId} setUsuarioId={setUsuarioId} />
+    </Router>
+  );
+}
+
+function AppRoutes({ usuarioId, setUsuarioId }) {
+  const navigate = useNavigate();
   const cerrarSesion = () => {
     localStorage.removeItem("usuarioId");
     setUsuarioId(null);
+    navigate('/');
   };
 
   return (
-    <Router>
-      <>
-        <header style={{position: 'fixed', top: 0, left: 0, width: '100%', background: '#fff', boxShadow: '0 2px 12px #0001', zIndex: 1000, padding: '0 0', borderBottom: '1px solid #e5e5e5'}}>
-          <nav style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 36px', maxWidth: 1200, margin: '0 auto'}}>
-            <div style={{display: 'flex', alignItems: 'center', gap: 16}}>
-              <Link to="/" style={{display: 'flex', alignItems: 'center', marginRight: 18, textDecoration: 'none'}} aria-label="Inicio">
-                <img src="/logo.svg" alt="Logo" style={{width: 38, height: 38, display: 'block'}} />
-              </Link>
-            </div>
-            <div style={{display: 'flex', alignItems: 'center', gap: 28}}>
-              <Link to="/" style={{color: '#1976d2', textDecoration: 'none', fontWeight: 600, fontSize: '1.13rem', letterSpacing: '.01em'}}>Inicio</Link>
-              {!usuarioId && (
-                <Link to="/registro" style={{color: '#1976d2', textDecoration: 'none', fontWeight: 600, fontSize: '1.13rem'}}>Registro</Link>
-              )}
-              {usuarioId && (
-                <>
-                  <Link to={`/usuario/${usuarioId}`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 600, fontSize: '1.13rem'}}>Mi Cuenta</Link>
-                  <button onClick={cerrarSesion} style={{ marginLeft: 18, background: '#e3eefd', color: '#1976d2', border: 'none', borderRadius: 6, padding: '8px 18px', fontWeight: 600, fontSize: '1.05rem', cursor: 'pointer', transition: 'background 0.2s' }}
-                    onMouseOver={e => e.currentTarget.style.background='#d1e2fc'}
-                    onMouseOut={e => e.currentTarget.style.background='#e3eefd'}>
-                    Cerrar Sesión
-                  </button>
-                </>
-              )}
-            </div>
-          </nav>
-        </header>
-        <div style={{paddingTop: 64}}>
-          <Routes>
-            <Route path="/" element={<Inicio />} />
-            <Route
-              path="/login"
-              element={<Login setUsuarioId={(id) => {
-                setUsuarioId(id);
-                localStorage.setItem("usuarioId", id); // Guardar en localStorage
-              }} />}
-            />
-            <Route path="/registro" element={<RegistroUsuario setUsuarioId={setUsuarioId} />} />
-            <Route path="/usuario/:usuarioId" element={<Usuario />} />
-            <Route
-              path="/usuario/:usuarioId/cuentas"
-              element={
-                usuarioId ? (
-                  <CuentasMoodle />
-                ) : (
-                  <Navigate to="/login" replace />
-                )
-              }
-            />
-            <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos" element={<CursosDeCuenta />} />
-            <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas" element={<TareasDeCurso />} />
-            <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas/:tareaId/detalle" element={<TareaIndividual />} />
-          </Routes>
-        </div>
-      </>
-    </Router>
+    <>
+      <Navbar bg="white" expand="md" className="border-bottom shadow-sm mb-0">
+        <Container>
+          <Navbar.Brand as={Link} to="/">
+            <img src="/logo.svg" alt="Logo" width={36} height={36} className="me-2 align-middle" />
+            <span className="align-middle fw-bold text-primary">Moodle AI Tasks</span>
+          </Navbar.Brand>
+          <Navbar.Toggle aria-controls="main-navbar-nav" />
+          <Navbar.Collapse id="main-navbar-nav">
+            <Nav className="ms-auto align-items-center gap-2">
+              {usuarioId && <Nav.Link as={Link} to="/" className="fw-semibold">Inicio</Nav.Link>}
+              {!usuarioId && <Nav.Link as={Link} to="/login" className="p-0"><button className="btn btn-outline-primary btn-sm ms-2">Login</button></Nav.Link>}
+              {!usuarioId && <Nav.Link as={Link} to="/registro" className="p-0"><button className="btn btn-outline-primary btn-sm ms-2">Registro</button></Nav.Link>}
+              {usuarioId && <Nav.Link as={Link} to={`/usuario/${usuarioId}`} className="fw-semibold">Mi Cuenta</Nav.Link>}
+              {usuarioId && <Nav.Item as="span" className="ms-2"><button className="btn btn-outline-danger btn-sm" onClick={cerrarSesion}>Cerrar Sesión</button></Nav.Item>}
+            </Nav>
+          </Navbar.Collapse>
+        </Container>
+      </Navbar>
+      <div>
+        <Routes>
+          <Route path="/" element={<Inicio />} />
+          <Route
+            path="/login"
+            element={<Login setUsuarioId={(id) => {
+              setUsuarioId(id);
+              localStorage.setItem("usuarioId", id); // Guardar en localStorage
+            }} />}
+          />
+          <Route path="/registro" element={<RegistroUsuario setUsuarioId={setUsuarioId} />} />
+          <Route path="/usuario/:usuarioId" element={<Usuario />} />
+          <Route
+            path="/usuario/:usuarioId/cuentas"
+            element={
+              usuarioId ? (
+                <CuentasMoodle />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+          <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos" element={<CursosDeCuenta />} />
+          <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas" element={<TareasDeCurso />} />
+          <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas/:tareaId/detalle" element={<TareaIndividual />} />
+        </Routes>
+      </div>
+    </>
   );
 }
 

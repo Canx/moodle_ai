@@ -33,7 +33,7 @@ def login_moodle(page, moodle_url, usuario, contrasena):
     if page.is_visible("#loginerrormessage"):
         mensaje_error = page.inner_text("#loginerrormessage")
         print(f"[ERROR] Login fallido: {mensaje_error}")
-        raise Exception("Credenciales incorrectas")
+        raise Exception(mensaje_error)
 
 def get_cursos_moodle(page, moodle_url):
     print("[INFO] Navegando a la tabla de cursos personalizada")
