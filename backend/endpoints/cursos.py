@@ -52,8 +52,8 @@ def sincronizar_tareas_curso(curso_id: int):
                 else:
                     estado = 'sin_pendientes'
                 cursor.execute(
-                    "INSERT OR REPLACE INTO tareas (cuenta_id, curso_id, tarea_id, titulo, estado) VALUES (?, ?, ?, ?, ?)",
-                    (cuenta_id, curso_id, tarea["tarea_id"], tarea["titulo"], estado)
+                    "INSERT OR REPLACE INTO tareas (cuenta_id, curso_id, tarea_id, titulo, estado, calificacion_maxima) VALUES (?, ?, ?, ?, ?, ?)",
+                    (cuenta_id, curso_id, tarea["tarea_id"], tarea["titulo"], estado, tarea.get("calificacion_maxima"))
                 )
                 print(f"[DEBUG] Entregas pendientes para tarea '{tarea['titulo']}': {len(tarea.get('entregas_pendientes', []))}")
                 # Guardar entregas en la tabla entregas
@@ -73,8 +73,8 @@ def sincronizar_tareas_curso(curso_id: int):
                                 entrega["estado"]
                             )
                         )
-            from database import connection
-            connection.commit()
+            from database import conn
+            conn.commit()
             browser.close()
         return {"mensaje": "Tareas sincronizadas", "tareas": tareas}
     except Exception as e:

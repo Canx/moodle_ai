@@ -36,6 +36,7 @@ def registrar_usuario(usuario: Usuario):
             (usuario.nombre, usuario.correo, usuario.contrasena),
         )
         conn.commit()
-        return {"mensaje": "Usuario registrado exitosamente"}
+        user_id = cursor.lastrowid
+        return {"mensaje": "Usuario registrado exitosamente", "id": user_id}
     except Exception:
         raise HTTPException(status_code=400, detail="El correo ya está registrado")

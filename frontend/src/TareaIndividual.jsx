@@ -70,6 +70,18 @@ function TareaIndividual() {
   return (
     <div style={{width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', display: 'flex', flexDirection: 'column'}}>
       {/* Breadcrumb visual */}
+      {/* Resumen de la tarea */}
+      <div style={{
+        background: '#f7fafd', borderRadius: 12, padding: '18px 20px', marginBottom: 28, boxShadow: '0 2px 8px #1976d233',
+        border: '2px solid #1976d2',
+        display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 430, alignSelf: 'flex-start'
+      }}>
+        <div style={{fontWeight:700, fontSize:'1.13rem', color:'#1976d2', marginBottom:7, letterSpacing:0.5}}>Datos de la tarea</div>
+        <div><b>ID Moodle:</b> {tarea.tarea_id}</div>
+        <div><b>Calificación máxima:</b> {tarea.calificacion_maxima !== undefined && tarea.calificacion_maxima !== null ? tarea.calificacion_maxima : <span style={{color:'#aaa'}}>No disponible</span>}</div>
+        <div><b>Estado:</b> {tarea.estado || <span style={{color:'#aaa'}}>No disponible</span>}</div>
+        <div><b>Última sincronización:</b> {tarea.fecha_sincronizacion ? new Date(tarea.fecha_sincronizacion).toLocaleString() : <span style={{color:'#aaa'}}>No disponible</span>}</div>
+      </div>
       <nav style={{fontSize: '1rem', marginBottom: 18, color: '#888', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4}} aria-label="breadcrumb">
         <Link to="/" style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500}}>Inicio</Link>
         <span style={{margin: '0 6px'}}>›</span>

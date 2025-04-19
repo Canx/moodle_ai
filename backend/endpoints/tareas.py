@@ -14,18 +14,38 @@ from fastapi import Query
 
 @router.get("/api/tareas/{tarea_id}")
 def obtener_tarea(tarea_id: int, curso_id: int = Query(None)):
-    cursor.execute("SELECT id, cuenta_id, curso_id, tarea_id, titulo, descripcion FROM tareas WHERE id = ?", (tarea_id,))
+    cursor.execute("SELECT id, cuenta_id, curso_id, tarea_id, titulo, descripcion, calificacion_maxima, estado, fecha_sincronizacion FROM tareas WHERE id = ?", (tarea_id,))
     row = cursor.fetchone()
     if row:
-        return {"id": row[0], "cuenta_id": row[1], "curso_id": row[2], "tarea_id": row[3], "titulo": row[4], "descripcion": row[5]}
+        return {
+            "id": row[0],
+            "cuenta_id": row[1],
+            "curso_id": row[2],
+            "tarea_id": row[3],
+            "titulo": row[4],
+            "descripcion": row[5],
+            "calificacion_maxima": row[6],
+            "estado": row[7],
+            "fecha_sincronizacion": row[8],
+        }
     # Si no existe, intentar sincronizar tareas del curso indicado (si se pasa curso_id)
     if curso_id is not None:
         from .cursos import sincronizar_tareas_curso
         sincronizar_tareas_curso(curso_id)
-        cursor.execute("SELECT id, cuenta_id, curso_id, tarea_id, titulo, descripcion FROM tareas WHERE id = ?", (tarea_id,))
+        cursor.execute("SELECT id, cuenta_id, curso_id, tarea_id, titulo, descripcion, calificacion_maxima, estado, fecha_sincronizacion FROM tareas WHERE id = ?", (tarea_id,))
         row = cursor.fetchone()
         if row:
-            return {"id": row[0], "cuenta_id": row[1], "curso_id": row[2], "tarea_id": row[3], "titulo": row[4], "descripcion": row[5]}
+            return {
+                "id": row[0],
+                "cuenta_id": row[1],
+                "curso_id": row[2],
+                "tarea_id": row[3],
+                "titulo": row[4],
+                "descripcion": row[5],
+                "calificacion_maxima": row[6],
+                "estado": row[7],
+                "fecha_sincronizacion": row[8],
+            }
         raise HTTPException(status_code=404, detail="Tarea no encontrada tras sincronizar el curso indicado")
     raise HTTPException(status_code=404, detail="Tarea no encontrada y no se puede sincronizar porque no se conoce el curso")
 
@@ -102,11 +122,27 @@ def obtener_descripcion_tarea(tarea_id: int):
 
 @router.get("/api/tareas/{tarea_id}/entregas_pendientes")
 def obtener_entregas_pendientes_tarea(tarea_id: int):
+    # Obtener todas las entregas de la base de datos para la tarea
     cursor.execute(
-        "SELECT id, alumno_id, fecha_entrega, file_url, file_name, estado, nombre FROM entregas WHERE tarea_id = ? AND (estado IS NULL OR estado LIKE '%calificar%') ORDER BY fecha_entrega DESC",
+        "SELECT id, alumno_id, fecha_entrega, file_url, file_name, estado, nombre FROM entregas WHERE tarea_id = ? AND (estado IS NULL OR estado LIKE '%calificar%') ORDER BY fecha_entrega DESC, alumno_id",
         (tarea_id,)
     )
-    entregas = cursor.fetchall()
+    rows = cursor.fetchall()
+    # Agrupar por alumno_id, fecha_entrega, estado, nombre (una entrega puede tener varios archivos)
+    entregas_dict = {}
+    for row in rows:
+        entrega_key = (row[1], row[2], row[5], row[6])  # alumno_id, fecha_entrega, estado, nombre
+        if entrega_key not in entregas_dict:
+            entregas_dict[entrega_key] = {
+                "id": row[0],
+                "alumno_id": row[1],
+                "fecha_entrega": row[2],
+                "estado": row[5],
+                "nombre": row[6],
+                "archivos": [],
+            }
+        if row[3] and row[4]:
+            entregas_dict[entrega_key]["archivos"].append({"url": row[3], "nombre": row[4]})
     # Obtener la URL base de Moodle y el id de la tarea para construir el enlace manual
     cursor.execute("SELECT cuenta_id, tarea_id FROM tareas WHERE id = ?", (tarea_id,))
     tarea_row = cursor.fetchone()
@@ -122,19 +158,12 @@ def obtener_entregas_pendientes_tarea(tarea_id: int):
         if moodle_url and tarea_id_moodle and alumno_id:
             return f"{moodle_url}/mod/assign/view.php?id={tarea_id_moodle}&action=grader&userid={alumno_id}"
         return None
-    return [
-        {
-            "id": row[0],
-            "alumno_id": row[1],
-            "fecha_entrega": row[2],
-            "file_url": row[3],
-            "file_name": row[4],
-            "estado": row[5],
-            "nombre": row[6],
-            "link_calificar": generar_link_calificar(moodle_url, tarea_id_moodle, row[1])
-        }
-        for row in entregas
-    ]
+    entregas = []
+    for entrega in entregas_dict.values():
+        entrega["link_calificar"] = generar_link_calificar(moodle_url, tarea_id_moodle, entrega["alumno_id"])
+        entregas.append(entrega)
+    return entregas
+
 
 # Endpoint para iniciar la evaluación de una tarea
 @router.post("/api/tareas/{tarea_id}/evaluar")

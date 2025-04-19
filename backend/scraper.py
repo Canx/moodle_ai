@@ -91,6 +91,24 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
 
     # Scraping de entregas pendientes para cada tarea
     for tarea in tareas:
+        # Scraping de calificación máxima
+        try:
+            edit_url = f"{moodle_url}/course/modedit.php?update={tarea['tarea_id']}"
+            page.goto(edit_url, wait_until="networkidle")
+            try:
+                # Esperar solo a que el input esté en el DOM, no necesariamente visible
+                page.wait_for_selector('#id_grade_modgrade_point', timeout=5000, state='attached')
+                input_elem = page.query_selector('#id_grade_modgrade_point')
+                calif_val = input_elem.get_attribute('value') if input_elem else None
+                tarea['calificacion_maxima'] = float(calif_val) if calif_val else None
+                print(f"[DEBUG] Calificación máxima para tarea '{tarea['titulo']}': {tarea['calificacion_maxima']}")
+            except Exception as e:
+                print(f"[WARN] No se pudo obtener calificación máxima para tarea {tarea['titulo']}: {e}")
+                tarea['calificacion_maxima'] = None
+        except Exception as e:
+            print(f"[WARN] No se pudo acceder a la página de edición para tarea {tarea['titulo']}: {e}")
+            tarea['calificacion_maxima'] = None
+        # Scraping de entregas pendientes
         try:
             grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea['tarea_id']}&action=grading"
             page.goto(grading_url, wait_until="networkidle")

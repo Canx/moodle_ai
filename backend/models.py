@@ -25,3 +25,4 @@ class Tarea(BaseModel):
     rubrica: Optional[str] = None
     fecha_sincronizacion: Optional[str] = None
     estado: Optional[str] = None
+    calificacion_maxima: Optional[float] = None

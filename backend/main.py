@@ -61,6 +61,7 @@ cursor.execute('''
         rubrica TEXT,
         fecha_sincronizacion TEXT,
         estado TEXT,
+        calificacion_maxima REAL,
         FOREIGN KEY (cuenta_id) REFERENCES cuentas_moodle (id),
         FOREIGN KEY (curso_id) REFERENCES cursos (id),
         UNIQUE (curso_id, tarea_id)
