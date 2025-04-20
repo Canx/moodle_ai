@@ -4,6 +4,7 @@ import RegistroUsuario from "./RegistroUsuario";
 import Usuario from "./Usuario";
 import { Navbar, Nav, Container } from "react-bootstrap";
 import CuentasMoodle from "./CuentasMoodle";
+import CuentaForm from "./CuentaForm";
 import CursosDeCuenta from "./CursosDeCuenta";
 import TareasDeCurso from "./TareasDeCurso";
 import TareaIndividual from "./TareaIndividual";
@@ -78,6 +79,7 @@ function AppRoutes({ usuarioId, setUsuarioId }) {
               )
             }
           />
+          <Route path="/usuario/:usuarioId/cuentas/new" element={<CuentaForm />} />
           <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos" element={<CursosDeCuenta />} />
           <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas" element={<TareasDeCurso />} />
           <Route path="/usuario/:usuarioId/cuentas/:cuentaId/cursos/:cursoId/tareas/:tareaId/detalle" element={<TareaIndividual />} />

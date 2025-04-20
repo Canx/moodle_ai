@@ -110,6 +110,11 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
             grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea['tarea_id']}&action=grading"
             page.goto(grading_url, wait_until="networkidle")
             page.wait_for_selector("table.generaltable", timeout=5000)
+            # Seleccionar 'Sin filtro' para mostrar todas las entregas
+            page.wait_for_selector("select#id_filter", timeout=5000)
+            page.select_option("select#id_filter", "")
+            # Esperar recarga de la tabla de entregas
+            page.wait_for_selector("table.generaltable tbody tr", timeout=5000)
             entregas = get_entregas_pendientes(page, tarea['tarea_id'])
             tarea['entregas_pendientes'] = entregas
             print(f"[DEBUG] Entregas pendientes para tarea {tarea['titulo']}: {len(entregas)}")
@@ -146,14 +151,18 @@ def get_entregas_pendientes(page, tarea_id):
         # Enlace de calificación manual
         link_calificar_a = fila.query_selector("td.c5 a.btn.btn-primary")
         link_calificar = link_calificar_a.get_attribute("href") if link_calificar_a else None
-        # Añadir entrega si hay estado o archivo
-        if nombre or archivos or estado:
+        # Obtener nota rápida (input.quickgrade)
+        nota_input = fila.query_selector("input.quickgrade")
+        nota_text = nota_input.get_attribute("value").strip() if nota_input else None
+        # Añadir entrega si hay estado, archivo o nota
+        if nombre or archivos or estado or nota_text:
             entregas.append({
                 "alumno_id": alumno_id,
                 "nombre": nombre,
                 "email": email,
                 "estado": estado,
                 "fecha_entrega": fecha_entrega,
+                "nota": nota_text,
                 "archivos": archivos,
                 "link_calificar": link_calificar
             })
@@ -199,6 +208,11 @@ def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
         page.goto(grading_url, wait_until="networkidle")
         try:
             page.wait_for_selector("table.generaltable", timeout=5000)
+            # Seleccionar 'Sin filtro' para mostrar todas las entregas
+            page.wait_for_selector("select#id_filter", timeout=5000)
+            page.select_option("select#id_filter", "")
+            # Esperar recarga de la tabla de entregas
+            page.wait_for_selector("table.generaltable tbody tr", timeout=5000)
             entregas_pendientes = get_entregas_pendientes(page, tarea_id)
         except Exception as e:
             print(f"[WARN] No se pudo obtener entregas para tarea en {grading_url}: {e}")

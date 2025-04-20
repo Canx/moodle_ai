@@ -8,6 +8,7 @@ function TareaIndividual() {
   const [entregas, setEntregas] = useState([]);
   const [descOpen, setDescOpen] = useState(false);
   const [entregasOpen, setEntregasOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Mostrar la descripción local al cargar la tarea si existe
   useEffect(() => {
@@ -69,40 +70,21 @@ function TareaIndividual() {
 
   return (
     <div style={{position: 'relative', width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', display: 'flex', flexDirection: 'column'}}>
-      {/* Breadcrumb visual */}
-      {/* Resumen de la tarea */}
-      <div style={{
-        background: '#f7fafd', borderRadius: 12, padding: '18px 20px', marginBottom: 28, boxShadow: '0 2px 8px #1976d233',
-        border: '2px solid #1976d2',
-        display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 430, alignSelf: 'flex-start'
-      }}>
-        <div style={{fontWeight:700, fontSize:'1.13rem', color:'#1976d2', marginBottom:7, letterSpacing:0.5}}>Datos de la tarea</div>
-        <div><b>ID Moodle:</b> {tarea.tarea_id}</div>
-        <div><b>Calificación máxima:</b> {tarea.calificacion_maxima !== undefined && tarea.calificacion_maxima !== null ? tarea.calificacion_maxima : <span style={{color:'#aaa'}}>No disponible</span>}</div>
-        <div><b>Estado:</b> {tarea.estado || <span style={{color:'#aaa'}}>No disponible</span>}</div>
-        <div><b>Última sincronización:</b> {tarea.fecha_sincronizacion ? new Date(tarea.fecha_sincronizacion).toLocaleString() : <span style={{color:'#aaa'}}>No disponible</span>}</div>
+      {/* Menú de acciones */}
+      <div style={{position: 'absolute', top: 16, right: 16}}>
+        <button onClick={() => setMenuOpen(o => !o)} style={{background:'none', border:'none', cursor:'pointer', fontSize:'1.5rem'}}>⋮</button>
+        {menuOpen && (
+          <div style={{position:'absolute', right:0, marginTop:4, background:'#fff', border:'1px solid #ccc', borderRadius:4, boxShadow:'0 2px 6px rgba(0,0,0,0.2)'}}>
+            <button onClick={() => { setMenuOpen(false); sincronizarTarea(); }} disabled={loading} style={{display:'block', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
+              {loading ? 'Sincronizando...' : 'Sincronizar tarea'}
+            </button>
+          </div>
+        )}
       </div>
-      <nav style={{fontSize: '1rem', marginBottom: 18, color: '#888', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4}} aria-label="breadcrumb">
-        <Link to="/" style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500}}>Inicio</Link>
-        <span style={{margin: '0 6px'}}>›</span>
-        <Link to={`/usuario/${usuarioId}/cuentas`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500}}>Cuentas</Link>
-        <span style={{margin: '0 6px'}}>›</span>
-        <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500}}>Cursos</Link>
-        <span style={{margin: '0 6px'}}>›</span>
-        <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500}}>Tareas</Link>
-        <span style={{margin: '0 6px'}}>›</span>
-        <span style={{color: '#888', fontWeight: 500}}>Tarea</span>
-      </nav>
       <div style={{display:'flex', gap:'16px', width:'100%', justifyContent:'flex-start', marginBottom:'18px'}}>
         <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none'}}>&larr; Volver a tareas</Link>
-        <button onClick={() => navigate(-1)} style={{ backgroundColor: '#4CAF50', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 500 }}>
-          Atrás
-        </button>
       </div>
       <h2 style={{fontSize: '2rem', color: '#1976d2', marginBottom: 18, textAlign: 'center'}}>{tarea.titulo}</h2>
-      <button onClick={sincronizarTarea} disabled={loading} style={{ background: '#1976d2', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontWeight: 600, fontSize: '1rem', cursor: loading ? 'not-allowed' : 'pointer', marginBottom: '18px', boxShadow: loading ? 'none' : '0 2px 6px #1976d233', opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
-        {loading ? "Sincronizando..." : "Sincronizar tarea"}
-      </button>
       {error && <div style={{ color: "#d32f2f", background: '#fff0f0', borderRadius: 6, padding: '8px 14px', marginBottom: 10 }}>{error}</div>}
       {/* Descripción colapsable */}
       <div style={{marginBottom: 18}}>
@@ -128,6 +110,7 @@ function TareaIndividual() {
                   <th style={{padding:'6px 10px'}}>Fecha entrega</th>
                   <th style={{padding:'6px 10px'}}>Archivo</th>
                   <th style={{padding:'6px 10px'}}>Estado</th>
+                  <th style={{padding:'6px 10px'}}>Nota</th>
                   <th style={{padding:'6px 10px'}}>Calificar</th>
                 </tr>
               </thead>
@@ -136,20 +119,60 @@ function TareaIndividual() {
                   <tr key={idx}>
                     <td style={{padding:'6px 10px'}}>{entrega.nombre || 'Sin nombre'}</td>
                     <td style={{padding:'6px 10px'}}>{entrega.fecha_entrega}</td>
-                    <td style={{padding:'6px 10px'}}>
+                    <td style={{padding:'6px 10px', display:'flex', alignItems:'center', gap:8}}>
                       {entrega.archivos && entrega.archivos.length > 0 ? (
-                        <a href={entrega.archivos[0].url} target="_blank" rel="noopener noreferrer">{entrega.archivos[0].nombre}</a>
+                        <>
+                          <a href={entrega.archivos[0].url}
+                             download
+                             target="_blank" rel="noopener noreferrer"
+                             style={{textDecoration:'underline', color:'#1976d2'}}>
+                            {entrega.archivos[0].nombre}
+                          </a>
+                          <button onClick={()=>window.open(entrega.archivos[0].url, '_blank')}
+                                  style={{background:'#1976d2', color:'#fff', border:'none', borderRadius:4, padding:'4px 8px', cursor:'pointer'}}>
+                            Descargar
+                          </button>
+                        </>
                       ) : 'Sin archivo'}
                     </td>
                     <td style={{padding:'6px 10px'}}>{entrega.estado}</td>
-                    <td style={{padding:'6px 10px'}}>
+                    <td style={{padding:'6px 10px'}}>{entrega.nota != null ? entrega.nota : '-'}</td>
+                    <td style={{padding:'6px 10px', display:'flex', gap:8}}>
+                      {/* Botón Auto primero */}
+                      <button onClick={() => {
+                        const fileName = entrega.archivos[0]?.nombre || 'archivo sin nombre';
+                        const hasFile = entrega.archivos && entrega.archivos.length > 0;
+                        const promptText = `Por favor evalúa la entrega para la tarea "${tarea.titulo}".
+Descripción de la tarea:
+${tarea.descripcion}
+
+Archivo: ${fileName}
+
+Utiliza la rúbrica de la descripción de la tarea (si existe) pero no generes tablas ni emoticonos en la respuesta.
+
+Proporciona:
+- Una nota numérica (0-${tarea.calificacion_maxima})
+- Feedback detallado.${hasFile ? '\n\nSe adjunta el fichero a evaluar.' : ''}`;
+                        // Copiar prompt
+                        navigator.clipboard.writeText(promptText);
+                        // Abrir ChatGPT directamente y gestionar pop-up blocker
+                        const chatWin = window.open('https://chat.openai.com/', '_blank');
+                        if (!chatWin) {
+                          alert('Se ha copiado el prompt. Por favor habilita pop-ups para abrir ChatGPT automáticamente.');
+                          return;
+                        }
+                        chatWin.focus();
+                        alert(`Prompt copiado y ChatGPT abierto en nueva pestaña.
+Pasos:
+1) Cambia a la pestaña de ChatGPT.
+2) Pega el prompt con Ctrl+V (Windows/Linux) o Cmd+V (macOS).
+3) Si hay archivo, adjúntalo.
+4) Tras evaluar, haz click en "Manual" y edita la calificación y el feedback.`);
+                      }} style={{background:'#1976d2', color:'#fff', padding:'4px 10px', border:'none', borderRadius:6, fontWeight:500, cursor:'pointer'}}>Auto</button>
+                      {/* Enlace Manual */}
                       {entrega.link_calificar && (
-                        <a href={entrega.link_calificar} target="_blank" rel="noopener noreferrer" style={{marginRight:8, background:'#1976d2', color:'#fff', padding:'4px 10px', borderRadius:6, textDecoration:'none', fontWeight:500}}>Manual</a>
+                        <a href={entrega.link_calificar} target="_blank" rel="noopener noreferrer" style={{marginLeft:8, background:'#1976d2', color:'#fff', padding:'4px 10px', borderRadius:6, textDecoration:'none', fontWeight:500}}>Manual</a>
                       )}
-                      <button onClick={async()=>{
-                        await fetch(`/api/tareas/${tareaId}/evaluar`, {method:'POST'});
-                        alert('Calificación automática iniciada.');
-                      }} style={{background:'#27ae60', color:'#fff', padding:'4px 10px', border:'none', borderRadius:6, fontWeight:500, cursor:'pointer'}}>Auto</button>
                     </td>
                   </tr>
                 ))}

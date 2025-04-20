@@ -89,6 +89,13 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
                 entrega_db.nombre = e.get('nombre')
                 entrega_db.file_url = file_url
                 entrega_db.file_name = file_name
+                # Persistir nota quickgrade si existe
+                nota_text = e.get('nota')
+                if nota_text:
+                    try:
+                        entrega_db.nota = float(nota_text.replace(',', '.'))
+                    except:
+                        entrega_db.nota = None
                 db.add(entrega_db)
             db.commit()
 
@@ -107,6 +114,12 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
                 "estado": estado
             })
             db.commit()
+            # Actualizar entregas no encontradas en el scraping como evaluadas
+            scraped_ids = [e['alumno_id'] for e in entregas]
+            db.query(EntregaDB) \
+                .filter(EntregaDB.tarea_id == tarea_id, ~EntregaDB.alumno_id.in_(scraped_ids)) \
+                .update({"estado": "evaluada"}, synchronize_session=False)
+            db.commit()
             return {"descripcion": descripcion_html, "estado": estado}
     except Exception as e:
         db.query(TareaDB).filter(TareaDB.id == tarea_id).update({"estado": "error"})
@@ -118,8 +131,6 @@ def obtener_entregas_pendientes_tarea(tarea_id: int, db: Session = Depends(get_d
     # Obtener todas las entregas de la base de datos para la tarea
     entregas_query = db.query(EntregaDB).filter(
         EntregaDB.tarea_id == tarea_id
-    ).filter(
-        (EntregaDB.estado == None) | (EntregaDB.estado.ilike("%calificar%"))
     ).order_by(EntregaDB.fecha_entrega.desc(), EntregaDB.alumno_id)
     rows = entregas_query.all()
     # Agrupar por alumno_id, fecha_entrega, estado, nombre (una entrega puede tener varios archivos)
@@ -133,6 +144,8 @@ def obtener_entregas_pendientes_tarea(tarea_id: int, db: Session = Depends(get_d
                 "fecha_entrega": row.fecha_entrega,
                 "estado": row.estado,
                 "nombre": row.nombre,
+                "nota": row.nota,
+                "feedback": row.feedback,
                 "archivos": [],
             }
         if row.file_url and row.file_name:

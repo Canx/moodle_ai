@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 
 function TareasDeCurso() {
   const { cursoId, cuentaId, usuarioId } = useParams();
   const [tareas, setTareas] = useState([]);
-
-  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchTareas = async () => {
@@ -45,9 +43,6 @@ function TareasDeCurso() {
         <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos`} style={{ textDecoration: "none", color: "#1976d2", fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none' }}>
           Volver a cursos
         </Link>
-        <button onClick={() => navigate(-1)} style={{ backgroundColor: "#4CAF50", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "5px", cursor: "pointer", fontWeight: 500 }}>
-          Atrás
-        </button>
       </div>
       <h2>Tareas del Curso</h2>
       <button onClick={sincronizarTareas} disabled={sincronizando} style={{ marginBottom: "10px", backgroundColor: "#4CAF50", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "5px", cursor: "pointer" }}>
@@ -126,9 +121,6 @@ function TareasDeCurso() {
         <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos`} style={{ textDecoration: "none", color: "#1976d2", fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none' }}>
           Volver a cursos
         </Link>
-        <button onClick={() => navigate(-1)} style={{ backgroundColor: "#4CAF50", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "5px", cursor: "pointer", fontWeight: 500 }}>
-          Atrás
-        </button>
       </div>
     </div>
   );
