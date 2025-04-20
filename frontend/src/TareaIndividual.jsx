@@ -68,7 +68,7 @@ function TareaIndividual() {
   if (!tarea) return <div>Cargando tarea...</div>;
 
   return (
-    <div style={{width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', display: 'flex', flexDirection: 'column'}}>
+    <div style={{position: 'relative', width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', display: 'flex', flexDirection: 'column'}}>
       {/* Breadcrumb visual */}
       {/* Resumen de la tarea */}
       <div style={{
@@ -158,6 +158,12 @@ function TareaIndividual() {
           </div>
         )}
       </div>
+      {/* Overlay spinner */}
+      {(loading || (tarea && tarea.estado === 'sincronizando')) && (
+        <div style={{position:'absolute',top:0,left:0,right:0,bottom:0, background:'rgba(255,255,255,0.7)', borderRadius:18, display:'flex', alignItems:'center', justifyContent:'center'}}>
+          <div className="lds-ring"><div></div><div></div><div></div><div></div></div>
+        </div>
+      )}
     </div>
   );
 }

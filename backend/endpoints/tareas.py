@@ -57,6 +57,9 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
     cuenta = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == tarea.cuenta_id).first()
     if not cuenta:
         raise HTTPException(status_code=404, detail="Cuenta Moodle asociada no encontrada")
+    # Marcar tarea como sincronizando
+    db.query(TareaDB).filter(TareaDB.id == tarea_id).update({"estado": "sincronizando"})
+    db.commit()
     moodle_url = cuenta.moodle_url
     usuario_moodle = cuenta.usuario_moodle
     contrasena_moodle = cuenta.contrasena_moodle
@@ -69,6 +72,26 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
             descripcion_html = tarea_data['descripcion']
             entregas = tarea_data['entregas_pendientes']
 
+            # Persistir entregas en la base de datos
+            for e in entregas:
+                # tomar el primer archivo si existe
+                archivos = e.get('archivos', [])
+                file_url = archivos[0]['url'] if archivos else None
+                file_name = archivos[0]['nombre'] if archivos else None
+                entrega_db = db.query(EntregaDB).filter(
+                    EntregaDB.tarea_id == tarea_id,
+                    EntregaDB.alumno_id == e['alumno_id']
+                ).first()
+                if not entrega_db:
+                    entrega_db = EntregaDB(tarea_id=tarea_id, alumno_id=e['alumno_id'])
+                entrega_db.fecha_entrega = e.get('fecha_entrega')
+                entrega_db.estado = e.get('estado')
+                entrega_db.nombre = e.get('nombre')
+                entrega_db.file_url = file_url
+                entrega_db.file_name = file_name
+                db.add(entrega_db)
+            db.commit()
+
             # Calcular el estado de la tarea según las entregas
             if not entregas:
                 estado = 'sin_entregas'
@@ -77,7 +100,12 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
             else:
                 estado = 'sin_pendientes'
             now_str = datetime.now().isoformat()
-            db.query(TareaDB).filter(TareaDB.id == tarea_id).update({"descripcion": descripcion_html, "fecha_sincronizacion": now_str, "estado": estado})
+            # Actualizar descripción, fecha y estado final
+            db.query(TareaDB).filter(TareaDB.id == tarea_id).update({
+                "descripcion": descripcion_html,
+                "fecha_sincronizacion": now_str,
+                "estado": estado
+            })
             db.commit()
             return {"descripcion": descripcion_html, "estado": estado}
     except Exception as e:
@@ -158,6 +186,19 @@ def evaluar_entregas_task(tarea_id: int):
         ).all()
         for entrega in entregas:
             print(f"[DEBUG] Evaluando entrega {entrega.id} de alumno {entrega.alumno_id}")
+            # Descargar archivo si existe
+            if entrega.file_url:
+                import os, requests
+                download_dir = os.path.join("downloads", str(tarea_id), str(entrega.id))
+                os.makedirs(download_dir, exist_ok=True)
+                local_path = os.path.join(download_dir, entrega.file_name or os.path.basename(entrega.file_url))
+                try:
+                    r = requests.get(entrega.file_url)
+                    with open(local_path, "wb") as f:
+                        f.write(r.content)
+                    print(f"[DEBUG] Archivo descargado en {local_path}")
+                except Exception as err:
+                    print(f"[ERROR] No se pudo descargar {entrega.file_url}: {err}")
             # Aquí iría la llamada a la API de OpenAI/Assistants y el guardado de nota/feedback
             # Simulación de evaluación:
             entrega.nota = 10.0  # Simulación

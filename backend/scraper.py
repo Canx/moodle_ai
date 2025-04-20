@@ -2,34 +2,31 @@ from playwright.sync_api import sync_playwright
 import re
 
 def login_moodle(page, moodle_url, usuario, contrasena):
-    print("[INFO] Accediendo a:", f"{moodle_url}/login/index.php")
-    page.goto(f"{moodle_url}/login/index.php")
+    login_url = f"{moodle_url}/login/index.php"
+    print("[INFO] Accediendo a:", login_url)
+    page.goto(login_url, wait_until="networkidle")
+    # Esperar form y token de validación
+    try:
+        page.wait_for_selector("form#login", timeout=5000)
+        # El input logintoken es hidden, esperamos a que esté en el DOM
+        page.wait_for_selector("input[name='logintoken']", state="attached", timeout=5000)
+    except Exception as e:
+        print(f"[ERROR] No apareció formulario de login o logintoken: {e}")
+        raise
     print(f"[INFO] Introduciendo credenciales: usuario={usuario}, contraseña={'*' * len(contrasena)}")
     page.fill("input[name='username']", usuario)
     page.fill("input[name='password']", contrasena)
-    print("[INFO] Buscando botón de login")
-    botones = page.query_selector_all("button[type='submit']")
-    print(f"[INFO] Botones encontrados: {len(botones)}")
-    boton_pulsado = None
-    for i, b in enumerate(botones):
-        texto = b.inner_text()
-        visible = b.is_visible()
-        print(f" - Botón {i+1}: '{texto}', visible={visible}")
-        if visible and boton_pulsado is None:
-            try:
-                b.click()
-                boton_pulsado = texto
-            except Exception as e:
-                print(f"[ERROR] No se pudo hacer clic en el botón {i+1}: {e}")
-    if boton_pulsado:
-        print(f"[INFO] Botón pulsado: '{boton_pulsado}'")
-    else:
-        print("[ERROR] No se pudo pulsar ningún botón visible")
-    print("[INFO] Esperando que cargue la página tras login")
+    # Clic en botón de login
+    try:
+        page.click("button#loginbtn")
+    except Exception as e:
+        print(f"[ERROR] No se pudo hacer clic en loginbtn: {e}")
+        raise
+    # Esperar resultado de login
     try:
         page.wait_for_load_state("networkidle", timeout=10000)
-    except Exception as e:
-        print(f"[ERROR] Timeout esperando carga tras login: {e}")
+    except:
+        pass
     if page.is_visible("#loginerrormessage"):
         mensaje_error = page.inner_text("#loginerrormessage")
         print(f"[ERROR] Login fallido: {mensaje_error}")
@@ -183,7 +180,9 @@ def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
     """
     Hace login y obtiene tanto la descripción HTML como las entregas pendientes de una tarea concreta.
     """
-    page = browser.new_page()
+    # Crear un nuevo contexto independiente para evitar cookies de sesiones previas
+    context = browser.new_context()
+    page = context.new_page()
     login_moodle(page, moodle_url, usuario, contrasena)
     descripcion_html = None
     entregas_pendientes = []
@@ -204,7 +203,9 @@ def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
         except Exception as e:
             print(f"[WARN] No se pudo obtener entregas para tarea en {grading_url}: {e}")
     finally:
+        # Cerrar página y contexto para no acumular cookies
         page.close()
+        context.close()
     return {"descripcion": descripcion_html, "entregas_pendientes": entregas_pendientes}
 
 def get_descripcion_tarea(browser, moodle_url, usuario, contrasena, url_tarea):

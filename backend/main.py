@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from endpoints import usuarios, cuentas, cursos, tareas
 from database import Base, engine
 from models_db import UsuarioDB
+from fastapi.staticfiles import StaticFiles
+import os
 
 app = FastAPI()
 app.include_router(usuarios.router)
@@ -22,5 +24,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Asegurar que el directorio exista
+os.makedirs("downloads", exist_ok=True)
+
+# Servir archivos descargados (entregas)
+app.mount("/downloads", StaticFiles(directory="downloads"), name="downloads")
 
 # (Las tablas se gestionan ahora con SQLAlchemy y Base.metadata.create_all)
