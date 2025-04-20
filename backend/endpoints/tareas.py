@@ -89,6 +89,8 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
                 entrega_db.nombre = e.get('nombre')
                 entrega_db.file_url = file_url
                 entrega_db.file_name = file_name
+                # Persistir texto en línea si existe
+                entrega_db.contenido = e.get('texto')
                 # Persistir nota quickgrade si existe
                 nota_text = e.get('nota')
                 if nota_text:
@@ -105,7 +107,7 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
             elif any(e.get('estado', '').lower().startswith('enviado') or e.get('estado', '').lower().startswith('pendiente') for e in entregas):
                 estado = 'pendiente_calificar'
             else:
-                estado = 'sin_pendientes'
+                estado = 'evaluada'
             now_str = datetime.now().isoformat()
             # Actualizar descripción, fecha y estado final
             db.query(TareaDB).filter(TareaDB.id == tarea_id).update({
@@ -114,11 +116,11 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
                 "estado": estado
             })
             db.commit()
-            # Actualizar entregas no encontradas en el scraping como evaluadas
+            # Eliminar entregas no encontradas en el scraping (usuarios ya no matriculados)
             scraped_ids = [e['alumno_id'] for e in entregas]
             db.query(EntregaDB) \
                 .filter(EntregaDB.tarea_id == tarea_id, ~EntregaDB.alumno_id.in_(scraped_ids)) \
-                .update({"estado": "evaluada"}, synchronize_session=False)
+                .delete(synchronize_session=False)
             db.commit()
             return {"descripcion": descripcion_html, "estado": estado}
     except Exception as e:
@@ -146,6 +148,7 @@ def obtener_entregas_pendientes_tarea(tarea_id: int, db: Session = Depends(get_d
                 "nombre": row.nombre,
                 "nota": row.nota,
                 "feedback": row.feedback,
+                "texto": row.contenido,
                 "archivos": [],
             }
         if row.file_url and row.file_name:

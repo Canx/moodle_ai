@@ -49,3 +49,24 @@ npm install
 ```bash
 npm run dev
 ```
+
+## 🐳 Iniciar con Docker
+
+Asegúrate de tener Docker y Docker Compose instalados.
+
+```bash
+docker-compose up --build
+```
+
+Esto levantará los servicios (db, backend y frontend). Una vez iniciados, el frontend estará disponible en http://localhost:5173 y el backend en http://localhost:8000.
+
+Para levantar en segundo plano:
+
+```bash
+docker-compose up -d --build
+```
+
+Para detener y eliminar los contenedores:
+
+```bash
+docker-compose down

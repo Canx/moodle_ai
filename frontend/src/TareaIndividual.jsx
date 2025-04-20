@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Spinner } from 'react-bootstrap';
+import { Spinner, Modal, Button } from 'react-bootstrap';
 
 function TareaIndividual() {
   const { tareaId, cursoId, cuentaId, usuarioId } = useParams();
@@ -10,6 +10,11 @@ function TareaIndividual() {
   const [descOpen, setDescOpen] = useState(false);
   const [entregasOpen, setEntregasOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showTextoModal, setShowTextoModal] = useState(false);
+  const [selectedTexto, setSelectedTexto] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   // Mostrar la descripción local al cargar la tarea si existe
   useEffect(() => {
@@ -23,9 +28,6 @@ function TareaIndividual() {
       fetch(`/api/tareas/${tareaId}/entregas_pendientes`).then(res => res.json()).then(setEntregas);
     }
   }, [tareaId]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchTarea = async () => {
@@ -86,6 +88,26 @@ function TareaIndividual() {
         <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none'}}>&larr; Volver a tareas</Link>
       </div>
       <h2 style={{fontSize: '2rem', color: '#1976d2', marginBottom: 18, textAlign: 'center'}}>{tarea.titulo}</h2>
+      {/* Métricas de entregas vs total y evaluaciones vs entregadas */}
+      {entregas && (
+        (() => {
+          const totalCount = entregas.length;
+          const deliveredCount = entregas.filter(e =>
+            e.estado?.toLowerCase().startsWith('enviado') || e.estado?.toLowerCase().startsWith('pendiente')
+          ).length;
+          const evaluatedCount = entregas.filter(e => e.nota != null).length;
+          return (
+            <div style={{marginBottom: '18px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px'}}>
+              <span style={{background: '#ffc107', color: '#000', borderRadius: 5, padding: '4px 8px', fontWeight: 600}}>
+                Entregadas: {deliveredCount}/{totalCount}
+              </span>
+              <span style={{background: '#4caf50', color: '#fff', borderRadius: 5, padding: '4px 8px', fontWeight: 600}}>
+                Evaluadas: {evaluatedCount}/{deliveredCount}
+              </span>
+            </div>
+          );
+        })()
+      )}
       {error && <div style={{ color: "#d32f2f", background: '#fff0f0', borderRadius: 6, padding: '8px 14px', marginBottom: 10 }}>{error}</div>}
       {/* Descripción colapsable */}
       <div style={{marginBottom: 18}}>
@@ -110,6 +132,7 @@ function TareaIndividual() {
                   <th style={{padding:'6px 10px'}}>Alumno</th>
                   <th style={{padding:'6px 10px'}}>Fecha entrega</th>
                   <th style={{padding:'6px 10px'}}>Archivo</th>
+                  <th style={{padding:'6px 10px'}}>Texto</th>
                   <th style={{padding:'6px 10px'}}>Estado</th>
                   <th style={{padding:'6px 10px'}}>Nota</th>
                   <th style={{padding:'6px 10px'}}>Calificar</th>
@@ -129,12 +152,15 @@ function TareaIndividual() {
                              style={{textDecoration:'underline', color:'#1976d2'}}>
                             {entrega.archivos[0].nombre}
                           </a>
-                          <button onClick={()=>window.open(entrega.archivos[0].url, '_blank')}
-                                  style={{background:'#1976d2', color:'#fff', border:'none', borderRadius:4, padding:'4px 8px', cursor:'pointer'}}>
-                            Descargar
-                          </button>
                         </>
                       ) : 'Sin archivo'}
+                    </td>
+                    <td style={{padding:'6px 10px'}}>
+                      {entrega.texto ? (
+                        <Button variant="outline-primary" size="sm" onClick={() => { setSelectedTexto(entrega.texto); setShowTextoModal(true); }}>
+                          Ver
+                        </Button>
+                      ) : 'Sin texto'}
                     </td>
                     <td style={{padding:'6px 10px'}}>{entrega.estado}</td>
                     <td style={{padding:'6px 10px'}}>{entrega.nota != null ? entrega.nota : '-'}</td>
@@ -188,6 +214,18 @@ Pasos:
           <div className="lds-ring"><div></div><div></div><div></div><div></div></div>
         </div>
       )}
+      {/* Modal para mostrar texto largo */}
+      <Modal show={showTextoModal} onHide={() => setShowTextoModal(false)} size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Texto de entrega</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{selectedTexto}</pre>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowTextoModal(false)}>Cerrar</Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }

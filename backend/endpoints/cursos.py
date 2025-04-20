@@ -94,3 +94,21 @@ def obtener_tareas_ocultas_curso(curso_id: int, db: Session = Depends(get_db)):
         TareaDB.oculto == True
     ).order_by(TareaDB.id.desc()).all()
     return [{"id": t.id, "tarea_id": t.tarea_id, "titulo": t.titulo, "descripcion": t.descripcion, "estado": t.estado} for t in tareas]
+
+@router.post("/api/cursos/{curso_id}/ocultar")
+def ocultar_curso(curso_id: int, db: Session = Depends(get_db)):
+    curso = db.query(CursoDB).filter(CursoDB.id == curso_id).first()
+    if not curso:
+        raise HTTPException(status_code=404, detail="Curso no encontrado")
+    curso.oculto = True
+    db.commit()
+    return {"ok": True, "oculto": True}
+
+@router.post("/api/cursos/{curso_id}/mostrar")
+def mostrar_curso(curso_id: int, db: Session = Depends(get_db)):
+    curso = db.query(CursoDB).filter(CursoDB.id == curso_id).first()
+    if not curso:
+        raise HTTPException(status_code=404, detail="Curso no encontrado")
+    curso.oculto = False
+    db.commit()
+    return {"ok": True, "oculto": False}

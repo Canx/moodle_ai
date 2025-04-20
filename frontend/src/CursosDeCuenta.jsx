@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Spinner } from "react-bootstrap";
 
@@ -8,6 +8,10 @@ function CursosDeCuenta() {
   const [sincronizando, setSincronizando] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [account, setAccount] = useState(null);
+  const [mostrarOcultos, setMostrarOcultos] = useState(false);
+  const [cursosOcultos, setCursosOcultos] = useState([]);
+  const [openCourseMenuId, setOpenCourseMenuId] = useState(null);
+  const [unhidingCourseId, setUnhidingCourseId] = useState(null);
 
   useEffect(() => {
     const fetchCursos = async () => {
@@ -75,19 +79,71 @@ function CursosDeCuenta() {
         </Link>
       </div>
       <h2 style={{color: '#1976d2', fontSize: '2rem', marginBottom: 18}}>{account ? `Cursos de la cuenta ${account.usuario_moodle}` : 'Cursos de la cuenta'}</h2>
-      <div style={{display: 'flex', flexDirection: 'column', gap: 22, alignItems: 'center', width: '100%'}}>
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '22px', width: '100%'}}>
         {cursos.length === 0 && (
           <div style={{width: '100%', background: '#f7fafd', borderRadius: 12, boxShadow: '0 2px 8px #0001', padding: '32px 0', color: '#888', fontSize: '1.13rem', textAlign: 'center'}}>
             No hay cursos sincronizados.
           </div>
         )}
-        {cursos.map((curso) => (
-          <div key={curso.id || curso.nombre} style={{width: '100%', background: '#fff', borderRadius: 14, boxShadow: '0 2px 12px #0002', padding: '28px 26px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start'}}>
-            <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${curso.id}/tareas`} style={{ color: '#1976d2', textDecoration: 'none', fontWeight: 600, fontSize: '1.25rem', letterSpacing: '.01em' }}>
-              {curso.nombre}
+        {cursos.map(curso => (
+          <div key={curso.id} style={{position: 'relative'}}>
+            <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${curso.id}/tareas`} style={{textDecoration: 'none', display: 'block'}}>
+              <div style={{width: '100%', background: '#fff', borderRadius: 14, boxShadow: '0 2px 12px #0002', padding: '28px 26px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'}}>
+                <span style={{ color: '#1976d2', fontWeight: 600, fontSize: '1.25rem', letterSpacing: '.01em', textAlign: 'center', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                  {curso.nombre}
+                </span>
+              </div>
             </Link>
+            <button onClick={() => setOpenCourseMenuId(openCourseMenuId === curso.id ? null : curso.id)} style={{position: 'absolute', top: 8, right: 8, background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer'}}>⋮</button>
+            {openCourseMenuId === curso.id && (
+              <div style={{position: 'absolute', top: 28, right: 8, background: '#fff', border: '1px solid #ccc', borderRadius: 4, boxShadow: '0 2px 6px rgba(0,0,0,0.1)', zIndex: 10}}>
+                <div onClick={async () => {
+                  await fetch(`/api/cursos/${curso.id}/ocultar`, { method: 'POST' });
+                  const res = await fetch(`/api/cuentas/${cuentaId}/cursos`);
+                  if (res.ok) setCursos(await res.json());
+                  setOpenCourseMenuId(null);
+                }} style={{padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap'}}>Ocultar</div>
+              </div>
+            )}
           </div>
         ))}
+      </div>
+      {/* Sección de cursos ocultos */}
+      <div style={{ marginTop: 20, textAlign: 'center' }}>
+        <button onClick={async () => {
+          if (!mostrarOcultos) {
+            const resOc = await fetch(`/api/cuentas/${cuentaId}/cursos/ocultos`);
+            if (resOc.ok) setCursosOcultos(await resOc.json());
+          }
+          setMostrarOcultos(o => !o);
+        }} style={{ marginBottom: 10, background: '#888', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: 5, cursor: 'pointer' }}>
+          {mostrarOcultos ? 'Ocultar cursos ocultos' : 'Ver cursos ocultos'}
+        </button>
+        {mostrarOcultos && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '22px', width: '100%' }}>
+            {cursosOcultos.length === 0 && <div>No hay cursos ocultos.</div>}
+            {cursosOcultos.map(curso => (
+              <div key={curso.id} style={{ background: '#fff', borderRadius: 14, boxShadow: '0 2px 12px #0002', padding: '28px 26px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '160px' }}>
+                <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${curso.id}/tareas`} style={{ textDecoration: 'none', color: '#1976d2', fontWeight: 600, fontSize: '1.25rem', letterSpacing: '.01em', textAlign: 'center', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                  {curso.nombre}
+                </Link>
+                <button
+                  onClick={async () => {
+                    setUnhidingCourseId(curso.id);
+                    await fetch(`/api/cursos/${curso.id}/mostrar`, { method: 'POST' });
+                    const resOc2 = await fetch(`/api/cuentas/${cuentaId}/cursos/ocultos`);
+                    if (resOc2.ok) setCursosOcultos(await resOc2.json());
+                    setUnhidingCourseId(null);
+                  }}
+                  disabled={unhidingCourseId === curso.id}
+                  style={{ marginTop: 8, background: '#27ae60', color: '#fff', border: 'none', borderRadius: 5, padding: '6px 10px', cursor: 'pointer' }}
+                >
+                  {unhidingCourseId === curso.id ? (<><Spinner animation="border" size="sm" className="me-2" />Mostrar...</>) : 'Mostrar'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

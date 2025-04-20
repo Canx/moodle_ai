@@ -24,6 +24,7 @@ class CursoDB(Base):
     cuenta_id = Column(Integer, ForeignKey("cuentas_moodle.id"), nullable=False)
     nombre = Column(String, nullable=False)
     url = Column(String, nullable=False)
+    oculto = Column(Boolean, default=False, nullable=False)
     __table_args__ = (UniqueConstraint('cuenta_id', 'url', name='uq_curso_cuenta_url'),)
 
 class TareaDB(Base):

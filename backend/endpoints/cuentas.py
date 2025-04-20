@@ -221,7 +221,18 @@ def obtener_cursos_cuenta(cuenta_id: int):
     conn = engine.raw_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, nombre, url FROM cursos WHERE cuenta_id = %s",
+        "SELECT id, nombre, url FROM cursos WHERE cuenta_id = %s AND oculto = false",
+        (cuenta_id,)
+    )
+    cursos = cursor.fetchall()
+    return [{"id": c[0], "nombre": c[1], "url": c[2]} for c in cursos]
+
+@router.get("/api/cuentas/{cuenta_id}/cursos/ocultos")
+def obtener_cursos_ocultos_cuenta(cuenta_id: int):
+    conn = engine.raw_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, nombre, url FROM cursos WHERE cuenta_id = %s AND oculto = true",
         (cuenta_id,)
     )
     cursos = cursor.fetchall()

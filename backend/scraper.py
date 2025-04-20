@@ -125,6 +125,16 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
 
 def get_entregas_pendientes(page, tarea_id):
     entregas = []
+    # Detección dinámica de índices de columnas de archivos y texto en línea
+    header_cells = page.query_selector_all("table.generaltable thead th")
+    archivo_col_idx = None
+    texto_col_idx = None
+    for idx, th in enumerate(header_cells):
+        header_text = th.inner_text().strip()
+        if "Archivos enviados" in header_text:
+            archivo_col_idx = idx
+        if "Texto en línea" in header_text:
+            texto_col_idx = idx
     filas = page.query_selector_all("table.generaltable tbody tr")
     for fila in filas:
         tr_class = fila.get_attribute("class")
@@ -141,7 +151,12 @@ def get_entregas_pendientes(page, tarea_id):
         fecha_entrega_td = fila.query_selector("td.c7")
         fecha_entrega = fecha_entrega_td.inner_text().strip() if fecha_entrega_td else ""
         archivos = []
-        archivos_td = fila.query_selector("td.c8")
+        texto_en_linea = None
+        # Seleccionar celdas de texto y archivos según índices detectados
+        tds = fila.query_selector_all("td")
+        texto_td = tds[texto_col_idx] if (texto_col_idx is not None and texto_col_idx < len(tds)) else None
+        texto_en_linea = texto_td.inner_text().strip() if texto_td else None
+        archivos_td = tds[archivo_col_idx] if (archivo_col_idx is not None and archivo_col_idx < len(tds)) else None
         if archivos_td:
             enlaces = archivos_td.query_selector_all("a")
             for enlace in enlaces:
@@ -154,8 +169,8 @@ def get_entregas_pendientes(page, tarea_id):
         # Obtener nota rápida (input.quickgrade)
         nota_input = fila.query_selector("input.quickgrade")
         nota_text = nota_input.get_attribute("value").strip() if nota_input else None
-        # Añadir entrega si hay estado, archivo o nota
-        if nombre or archivos or estado or nota_text:
+        # Añadir entrega si hay estado, archivo, nota o texto en línea
+        if nombre or archivos or estado or nota_text or texto_en_linea:
             entregas.append({
                 "alumno_id": alumno_id,
                 "nombre": nombre,
@@ -163,6 +178,7 @@ def get_entregas_pendientes(page, tarea_id):
                 "estado": estado,
                 "fecha_entrega": fecha_entrega,
                 "nota": nota_text,
+                "texto": texto_en_linea,
                 "archivos": archivos,
                 "link_calificar": link_calificar
             })
