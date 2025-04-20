@@ -135,11 +135,10 @@ def sincronizar_cursos_y_tareas_endpoint(cuenta_id: int, background_tasks: Backg
             page = browser.new_page()
             login_moodle(page, url, usuario, contrasena)
             cursos = get_cursos_moodle(page, url)
-            # Eliminar cursos anteriores de esta cuenta
-            cursor.execute("DELETE FROM cursos WHERE cuenta_id = %s", (cuenta_id,))
+            # Upsert cursos para preservar IDs
             for curso in cursos:
                 cursor.execute(
-                    "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s)",
+                    "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
                     (cuenta_id, curso["nombre"], curso["url"])
                 )
             browser.close()
@@ -183,11 +182,10 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
             page = browser.new_page()
             login_moodle(page, url, usuario, contrasena)
             cursos = get_cursos_moodle(page, url)
-            # Eliminar cursos anteriores de esta cuenta
-            cursor.execute("DELETE FROM cursos WHERE cuenta_id = %s", (cuenta_id,))
+            # Upsert cursos para preservar IDs
             for curso in cursos:
                 cursor.execute(
-                    "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s)",
+                    "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
                     (cuenta_id, curso["nombre"], curso["url"])
                 )
             browser.close()

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { Spinner } from 'react-bootstrap';
 
 function TareaIndividual() {
   const { tareaId, cursoId, cuentaId, usuarioId } = useParams();
@@ -75,8 +76,8 @@ function TareaIndividual() {
         <button onClick={() => setMenuOpen(o => !o)} style={{background:'none', border:'none', cursor:'pointer', fontSize:'1.5rem'}}>⋮</button>
         {menuOpen && (
           <div style={{position:'absolute', right:0, marginTop:4, background:'#fff', border:'1px solid #ccc', borderRadius:4, boxShadow:'0 2px 6px rgba(0,0,0,0.2)'}}>
-            <button onClick={() => { setMenuOpen(false); sincronizarTarea(); }} disabled={loading} style={{display:'block', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
-              {loading ? 'Sincronizando...' : 'Sincronizar tarea'}
+            <button onClick={() => { setMenuOpen(false); sincronizarTarea(); }} disabled={loading} style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
+              {loading ? (<><Spinner animation="border" size="sm" className="me-2" />Sincronizando...</>) : 'Sincronizar tarea'}
             </button>
           </div>
         )}

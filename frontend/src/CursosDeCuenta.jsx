@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { Spinner } from "react-bootstrap";
 
 function CursosDeCuenta() {
   const { cuentaId, usuarioId } = useParams();
@@ -39,6 +40,7 @@ function CursosDeCuenta() {
         setTimeout(checkEstado, 2000);
       } else {
         setSincronizando(false);
+        setMenuOpen(false);
         // Refresca cursos
         const response = await fetch(`/api/cuentas/${cuentaId}/cursos`);
         if (response.ok) {
@@ -57,8 +59,12 @@ function CursosDeCuenta() {
         <button onClick={() => setMenuOpen(o => !o)} style={{background:'none', border:'none', cursor:'pointer', fontSize:'1.5rem'}}>⋮</button>
         {menuOpen && (
           <div style={{position:'absolute', right:0, marginTop:4, background:'#fff', border:'1px solid #ccc', borderRadius:4, boxShadow:'0 2px 6px rgba(0,0,0,0.1)'}}>
-            <button onClick={() => { setMenuOpen(false); sincronizar(); }} disabled={sincronizando} style={{display:'block', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
-              {sincronizando ? 'Sincronizando...' : 'Sincronizar cursos'}
+            <button onClick={() => sincronizar()} disabled={sincronizando} style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
+              {sincronizando ? (
+                <><Spinner animation="border" size="sm" className="me-2" />Sincronizando...</>
+              ) : (
+                'Sincronizar cursos'
+              )}
             </button>
           </div>
         )}

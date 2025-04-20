@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
+import { Spinner } from "react-bootstrap";
 
 function TareasDeCurso() {
   const { cursoId, cuentaId, usuarioId } = useParams();
@@ -19,6 +20,7 @@ function TareasDeCurso() {
   }, [cursoId, cuentaId]);
 
   const [sincronizando, setSincronizando] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const sincronizarTareas = async () => {
     setSincronizando(true);
@@ -38,16 +40,24 @@ function TareasDeCurso() {
   const [openMenuId, setOpenMenuId] = useState(null);
 
   return (
-    <div style={{width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', textAlign: 'center'}}>
+    <div style={{position: 'relative', width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', textAlign: 'center'}}>
+      {/* Menú de acciones */}
+      <div style={{position:'absolute', top:16, right:16}}>
+        <button onClick={() => setMenuOpen(o => !o)} style={{background:'none', border:'none', cursor:'pointer', fontSize:'1.5rem'}}>⋮</button>
+        {menuOpen && (
+          <div style={{position:'absolute', right:0, marginTop:4, background:'#fff', border:'1px solid #ccc', borderRadius:4, boxShadow:'0 2px 6px rgba(0,0,0,0.1)'}}>
+            <button onClick={() => { sincronizarTareas(); setMenuOpen(false); }} disabled={sincronizando} style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
+              {sincronizando ? (<><Spinner animation="border" size="sm" className="me-2" />Sincronizando...</>) : 'Sincronizar tareas'}
+            </button>
+          </div>
+        )}
+      </div>
       <div style={{display:'flex', gap:'16px', marginBottom:'18px'}}>
         <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos`} style={{ textDecoration: "none", color: "#1976d2", fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none' }}>
           Volver a cursos
         </Link>
       </div>
       <h2>Tareas del Curso</h2>
-      <button onClick={sincronizarTareas} disabled={sincronizando} style={{ marginBottom: "10px", backgroundColor: "#4CAF50", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "5px", cursor: "pointer" }}>
-        {sincronizando ? "Sincronizando..." : "Sincronizar tareas"}
-      </button>
       <div style={{display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '20px'}}>
         {tareas.length === 0 && <div style={{background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px #0001', padding: '18px 24px', minWidth: 260, maxWidth: 340, flex: '1 0 260px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'}}>No hay tareas sincronizadas.</div>}
         {tareas.map((tarea) => (
