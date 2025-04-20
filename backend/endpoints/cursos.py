@@ -81,5 +81,16 @@ def sincronizar_tareas_curso(curso_id: int, db: Session = Depends(get_db)):
 
 @router.get("/api/cursos/{curso_id}/tareas")
 def obtener_tareas_curso(curso_id: int, db: Session = Depends(get_db)):
-    tareas = db.query(TareaDB).filter(TareaDB.curso_id == curso_id).all()
+    tareas = db.query(TareaDB).filter(
+        TareaDB.curso_id == curso_id,
+        TareaDB.oculto == False
+    ).order_by(TareaDB.id.desc()).all()
+    return [{"id": t.id, "tarea_id": t.tarea_id, "titulo": t.titulo, "descripcion": t.descripcion, "estado": t.estado} for t in tareas]
+
+@router.get("/api/cursos/{curso_id}/tareas/ocultas")
+def obtener_tareas_ocultas_curso(curso_id: int, db: Session = Depends(get_db)):
+    tareas = db.query(TareaDB).filter(
+        TareaDB.curso_id == curso_id,
+        TareaDB.oculto == True
+    ).order_by(TareaDB.id.desc()).all()
     return [{"id": t.id, "tarea_id": t.tarea_id, "titulo": t.titulo, "descripcion": t.descripcion, "estado": t.estado} for t in tareas]

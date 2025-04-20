@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, UniqueConstraint, ForeignKey, Float, Text, DateTime
+from sqlalchemy import Column, Integer, String, UniqueConstraint, ForeignKey, Float, Text, DateTime, Boolean
 from database import Base
 from datetime import datetime
 
@@ -38,6 +38,7 @@ class TareaDB(Base):
     fecha_sincronizacion = Column(String)
     estado = Column(String)
     calificacion_maxima = Column(Float)
+    oculto = Column(Boolean, default=False, nullable=False)
     __table_args__ = (UniqueConstraint('curso_id', 'tarea_id', name='uq_tarea_curso_tareaid'),)
 
 class EntregaDB(Base):

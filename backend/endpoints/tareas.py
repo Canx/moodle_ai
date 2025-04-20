@@ -170,3 +170,21 @@ def evaluar_entregas_task(tarea_id: int):
     finally:
         db.close()
     print(f"[DEBUG] Evaluación completada para tarea {tarea_id}")
+
+@router.post("/api/tareas/{tarea_id}/ocultar")
+def ocultar_tarea(tarea_id: int, db: Session = Depends(get_db)):
+    tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
+    if not tarea:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    tarea.oculto = True
+    db.commit()
+    return {"ok": True, "oculto": True}
+
+@router.post("/api/tareas/{tarea_id}/mostrar")
+def mostrar_tarea(tarea_id: int, db: Session = Depends(get_db)):
+    tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
+    if not tarea:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    tarea.oculto = False
+    db.commit()
+    return {"ok": True, "oculto": False}
