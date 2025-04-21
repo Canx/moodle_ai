@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from models_db import CursoDB, CuentaMoodleDB, TareaDB, EntregaDB
 from database import get_db
 from scraper import get_tareas_de_curso, login_moodle
@@ -85,7 +86,25 @@ def obtener_tareas_curso(curso_id: int, db: Session = Depends(get_db)):
         TareaDB.curso_id == curso_id,
         TareaDB.oculto == False
     ).order_by(TareaDB.id.desc()).all()
-    return [{"id": t.id, "tarea_id": t.tarea_id, "titulo": t.titulo, "descripcion": t.descripcion, "estado": t.estado} for t in tareas]
+    # Incluir count de entregas pendientes por tarea
+    result = []
+    for t in tareas:
+        # contar solo entregas con archivo o contenido de texto
+        entregadas = db.query(EntregaDB).filter(
+            EntregaDB.tarea_id == t.id,
+            or_(EntregaDB.file_url != None, EntregaDB.contenido != None)
+        ).count()
+        pendientes = db.query(EntregaDB).filter(EntregaDB.tarea_id == t.id, EntregaDB.nota == None).count()
+        result.append({
+            "id": t.id,
+            "tarea_id": t.tarea_id,
+            "titulo": t.titulo,
+            "descripcion": t.descripcion,
+            "estado": t.estado,
+            "entregadas": entregadas,
+            "pendientes": pendientes
+        })
+    return result
 
 @router.get("/api/cursos/{curso_id}/tareas/ocultas")
 def obtener_tareas_ocultas_curso(curso_id: int, db: Session = Depends(get_db)):

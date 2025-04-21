@@ -124,6 +124,8 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
             db.commit()
             return {"descripcion": descripcion_html, "estado": estado}
     except Exception as e:
+        # Rollback para limpiar la transacción abortada y permitir actualizar estado
+        db.rollback()
         db.query(TareaDB).filter(TareaDB.id == tarea_id).update({"estado": "error"})
         db.commit()
         raise HTTPException(status_code=500, detail=f"Error al obtener descripción: {e}")

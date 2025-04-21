@@ -63,8 +63,9 @@ function TareaIndividual() {
       }
     } catch (e) {
       setError("Error de red");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
 
@@ -78,7 +79,7 @@ function TareaIndividual() {
         <button onClick={() => setMenuOpen(o => !o)} style={{background:'none', border:'none', cursor:'pointer', fontSize:'1.5rem'}}>⋮</button>
         {menuOpen && (
           <div style={{position:'absolute', right:0, marginTop:4, background:'#fff', border:'1px solid #ccc', borderRadius:4, boxShadow:'0 2px 6px rgba(0,0,0,0.2)'}}>
-            <button onClick={() => { setMenuOpen(false); sincronizarTarea(); }} disabled={loading} style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
+            <button onClick={() => { setMenuOpen(false); sincronizarTarea(); }} style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
               {loading ? (<><Spinner animation="border" size="sm" className="me-2" />Sincronizando...</>) : 'Sincronizar tarea'}
             </button>
           </div>
@@ -98,11 +99,14 @@ function TareaIndividual() {
           const evaluatedCount = entregas.filter(e => e.nota != null).length;
           return (
             <div style={{marginBottom: '18px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px'}}>
+              <span style={{background: '#2196f3', color: '#fff', borderRadius: 5, padding: '4px 8px', fontWeight: 600}}>
+                Total: {totalCount}
+              </span>
               <span style={{background: '#ffc107', color: '#000', borderRadius: 5, padding: '4px 8px', fontWeight: 600}}>
-                Entregadas: {deliveredCount}/{totalCount}
+                Entregadas: {deliveredCount}
               </span>
               <span style={{background: '#4caf50', color: '#fff', borderRadius: 5, padding: '4px 8px', fontWeight: 600}}>
-                Evaluadas: {evaluatedCount}/{deliveredCount}
+                Evaluadas: {evaluatedCount}
               </span>
             </div>
           );

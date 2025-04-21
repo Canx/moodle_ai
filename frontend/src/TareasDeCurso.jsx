@@ -5,6 +5,7 @@ import { Spinner } from "react-bootstrap";
 function TareasDeCurso() {
   const { cursoId, cuentaId, usuarioId } = useParams();
   const [tareas, setTareas] = useState([]);
+  const pendingCount = tareas.filter(t => t.estado === 'pendiente_calificar').length;
 
   useEffect(() => {
     const fetchTareas = async () => {
@@ -24,7 +25,14 @@ function TareasDeCurso() {
 
   const sincronizarTareas = async () => {
     setSincronizando(true);
-    await fetch(`/api/cursos/${cursoId}/sincronizar_tareas`, { method: "POST" });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    try {
+      await fetch(`/api/cursos/${cursoId}/sincronizar_tareas`, { method: "POST", signal: controller.signal });
+      clearTimeout(timeoutId);
+    } catch (e) {
+      console.error("Timeout sincronizando curso:", e);
+    }
     // Polling para estado (opcional, aquí asumimos que es rápido)
     const response = await fetch(`/api/cursos/${cursoId}/tareas`);
     if (response.ok) {
@@ -58,6 +66,11 @@ function TareasDeCurso() {
         </Link>
       </div>
       <h2>Tareas del Curso</h2>
+      {tareas.length > 0 && (
+        <div style={{ marginBottom: '12px', fontWeight: 500 }}>
+          Tareas pendientes de calificar: {pendingCount}
+        </div>
+      )}
       <div style={{display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '20px'}}>
         {tareas.length === 0 && <div style={{background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px #0001', padding: '18px 24px', minWidth: 260, maxWidth: 340, flex: '1 0 260px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'}}>No hay tareas sincronizadas.</div>}
         {tareas.map((tarea) => (
@@ -65,6 +78,12 @@ function TareasDeCurso() {
             <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas/${tarea.id}/detalle`} style={{ color: '#1976d2', fontWeight: 'bold', fontSize: '1.1rem', textDecoration: 'none', marginBottom: 8 }}>
               {tarea.titulo}
             </Link>
+            <div style={{ fontSize: '0.95rem', color: '#555', marginBottom: 4 }}>
+              Entregadas: {tarea.entregadas}
+            </div>
+            <div style={{ fontSize: '0.95rem', color: '#555', marginBottom: 8 }}>
+              Pendientes por calificar: {tarea.pendientes}
+            </div>
             <span style={{
               display: 'inline-block',
               marginTop: 6,
