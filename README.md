@@ -1,4 +1,4 @@
-# Moodle LLM Corrector (MVP)
+# Moodle AI Tasks
 
 Este proyecto es un MVP de un servicio web que permite a profesores conectar su cuenta de Moodle, obtener sus cursos y comenzar el proceso de corrección automática de tareas con ayuda de un modelo LLM como ChatGPT.
 
