@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 from models import Tarea
 from models_db import TareaDB, CuentaMoodleDB, EntregaDB
 from database import get_db
-from services.scraper_service import scrape_task_details
+from services.scraper_service import scrape_task_details_async
 import re
 import time
 from datetime import datetime, timedelta
+import json
 
 router = APIRouter()
 
@@ -48,7 +49,7 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
     raise HTTPException(status_code=404, detail="Tarea no encontrada y no se puede sincronizar porque no se conoce el curso")
 
 @router.post("/api/tareas/{tarea_id}/sincronizar")
-def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
+async def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
     tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
     if not tarea:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
@@ -64,8 +65,10 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
     contrasena_moodle = cuenta.contrasena_moodle
     # 3. Hacer scraping bajo demanda con login
     try:
-        # Llamar al servicio puro para obtener descripción y entregas
-        tarea_data = scrape_task_details(moodle_url, usuario_moodle, contrasena_moodle, tarea.tarea_id)
+        # Ejecutar scraping asíncrono usando Async Playwright API
+        tarea_data = await scrape_task_details_async(
+            moodle_url, usuario_moodle, contrasena_moodle, tarea.tarea_id
+        )
         descripcion_html = tarea_data['descripcion']
         entregas = tarea_data['entregas_pendientes']
 

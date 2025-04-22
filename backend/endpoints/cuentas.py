@@ -5,6 +5,7 @@ from models_db import CuentaMoodleDB
 from database import get_db, engine
 from scraper import sincronizar_cursos_y_tareas
 from services.scraper_service import scrape_courses
+import re
 
 router = APIRouter()
 
@@ -73,7 +74,7 @@ def sync_task(usuario, contrasena, url, cuenta_id):
         curso_id_map = {}
         for curso in cursos:
             cursor.execute(
-                "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s)",
+                "INSERT INTO cursos (cuenta_id, nombre, url, oculto) VALUES (%s, %s, %s, FALSE)",
                 (cuenta_id, curso["nombre"], curso["url"])
             )
             curso_db_id = cursor.lastrowid
@@ -133,7 +134,7 @@ def sincronizar_cursos_y_tareas_endpoint(cuenta_id: int, background_tasks: Backg
         # Upsert cursos para preservar IDs
         for curso in cursos:
             cursor.execute(
-                "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
+                "INSERT INTO cursos (cuenta_id, nombre, url, oculto) VALUES (%s, %s, %s, FALSE) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
                 (cuenta_id, curso["nombre"], curso["url"])
             )
         cursor.execute(
@@ -175,7 +176,7 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
         # Upsert cursos para preservar IDs
         for curso in cursos:
             cursor.execute(
-                "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
+                "INSERT INTO cursos (cuenta_id, nombre, url, oculto) VALUES (%s, %s, %s, FALSE) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
                 (cuenta_id, curso["nombre"], curso["url"])
             )
         cursor.execute(
@@ -185,6 +186,7 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
         conn.commit()
         return {"mensaje": "Sincronización de cursos completada", "cursos": cursos}
     except Exception as e:
+        conn.rollback()  # Clear aborted transaction
         cursor.execute(
             "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
             (cuenta_id, "error")

@@ -17,15 +17,21 @@ def obtener_cursos(db: Session = Depends(get_db)):
 def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str, contrasena: str, url_curso: str):
     db_task = SessionLocal()
     try:
-        tareas = scrape_tasks(moodle_url, usuario, contrasena, url_curso)
+        # Conservar tareas ocultas y preparar borrado de visibles
         old_tareas = db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id).all()
-        tarea_ids = [t.id for t in old_tareas]
+        hidden_remote_ids = {t.tarea_id for t in old_tareas if t.oculto}
+        tarea_ids = [t.id for t in old_tareas if not t.oculto]
         if tarea_ids:
             db_task.query(EntregaDB).filter(EntregaDB.tarea_id.in_(tarea_ids)).delete(synchronize_session=False)
             db_task.commit()
-        db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id).delete(synchronize_session=False)
+        db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id, TareaDB.oculto == False).delete(synchronize_session=False)
         db_task.commit()
+        # Scraping excluyendo tareas ocultas para optimizar
+        tareas = scrape_tasks(moodle_url, usuario, contrasena, url_curso, hidden_remote_ids)
         for tarea in tareas:
+            # Omitir re-creación de tareas que el usuario ocultó
+            if tarea.get('tarea_id') in hidden_remote_ids:
+                continue
             entregas = tarea.get('entregas_pendientes', [])
             if not entregas:
                 estado = 'sin_entregas'
@@ -45,14 +51,25 @@ def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str
             db_task.commit()
             db_task.refresh(nueva_tarea)
             for entrega in entregas:
+                archivos = entrega.get('archivos', [])
+                file_url = archivos[0]['url'] if archivos else None
+                file_name = archivos[0]['nombre'] if archivos else None
+                texto = entrega.get('texto')
+                nota_text = entrega.get('nota')
+                try:
+                    nota = float(str(nota_text).replace(',', '.')) if nota_text else None
+                except:
+                    nota = None
                 nueva_entrega = EntregaDB(
                     tarea_id=nueva_tarea.id,
                     alumno_id=entrega.get('alumno_id'),
                     fecha_entrega=entrega.get('fecha_entrega'),
-                    file_url=entrega.get('archivos',[{}])[0].get('url') if entrega.get('archivos') else None,
-                    file_name=entrega.get('archivos',[{}])[0].get('nombre') if entrega.get('archivos') else None,
+                    contenido=texto,
+                    file_url=file_url,
+                    file_name=file_name,
                     estado=entrega.get('estado'),
-                    nombre=entrega.get('nombre')
+                    nombre=entrega.get('nombre'),
+                    nota=nota
                 )
                 db_task.add(nueva_entrega)
             db_task.commit()

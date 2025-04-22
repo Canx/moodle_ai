@@ -12,7 +12,7 @@ function TareaIndividual() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showTextoModal, setShowTextoModal] = useState(false);
   const [selectedTexto, setSelectedTexto] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState({estado:'no_iniciado', fecha: null});
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
@@ -44,43 +44,62 @@ function TareaIndividual() {
     fetchTarea();
   }, [tareaId]);
 
-  const sincronizarTarea = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/tareas/${tareaId}/sincronizar`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setDesc(data.descripcion);
-        // Tras sincronizar, recarga entregas pendientes
-        const entregasRes = await fetch(`/api/tareas/${tareaId}/entregas_pendientes`);
-        if (entregasRes.ok) {
-          const entregasData = await entregasRes.json();
-          setEntregas(entregasData);
-        }
-      } else {
-        setError("No se pudo sincronizar la tarea");
-      }
-    } catch (e) {
-      setError("Error de red");
-    } finally {
-      setLoading(false);
-    }
+  // Iniciar sincronización en background y mostrar estado
+  const sincronizarTarea = () => {
+    setSyncStatus({ estado: 'sincronizando', fecha: new Date().toISOString() });
+    fetch(`/api/tareas/${tareaId}/sincronizar`, { method: "POST" })
+      .catch(() => {
+        setSyncStatus({ estado: 'error', fecha: new Date().toISOString() });
+      });
   };
 
+  // Polling de estado tras iniciar sincronización
+  useEffect(() => {
+    if (syncStatus.estado === 'sincronizando') {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/tareas/${tareaId}`);
+          if (res.ok) {
+            const data = await res.json();
+            setSyncStatus({ estado: data.estado, fecha: data.fecha_sincronizacion });
+            if (data.estado !== 'sincronizando') {
+              setDesc(data.descripcion);
+              const entregasRes = await fetch(`/api/tareas/${tareaId}/entregas_pendientes`);
+              if (entregasRes.ok) setEntregas(await entregasRes.json());
+              clearInterval(interval);
+            }
+          }
+        } catch {}
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [syncStatus.estado, tareaId]);
 
   if (error) return <div style={{color:'red'}}>{error}</div>;
   if (!tarea) return <div>Cargando tarea...</div>;
 
   return (
     <div style={{position: 'relative', width: '95%', margin: '40px auto', background: '#fff', borderRadius: 18, boxShadow: '0 4px 24px #0002', padding: '36px 30px 40px 30px', display: 'flex', flexDirection: 'column'}}>
+      {syncStatus.estado !== 'no_iniciado' && (
+        <div style={{ marginBottom: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {syncStatus.estado === 'sincronizando' && <Spinner animation="border" size="sm" className="me-2" />}
+          <span>Sincronización: {syncStatus.estado}</span>
+          {syncStatus.fecha && <small>({new Date(syncStatus.fecha).toLocaleTimeString()})</small>}
+        </div>
+      )}
       {/* Menú de acciones */}
       <div style={{position: 'absolute', top: 16, right: 16}}>
         <button onClick={() => setMenuOpen(o => !o)} style={{background:'none', border:'none', cursor:'pointer', fontSize:'1.5rem'}}>⋮</button>
         {menuOpen && (
           <div style={{position:'absolute', right:0, marginTop:4, background:'#fff', border:'1px solid #ccc', borderRadius:4, boxShadow:'0 2px 6px rgba(0,0,0,0.2)'}}>
-            <button onClick={() => { setMenuOpen(false); sincronizarTarea(); }} style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
-              {loading ? (<><Spinner animation="border" size="sm" className="me-2" />Sincronizando...</>) : 'Sincronizar tarea'}
+            <button
+              onClick={() => { setMenuOpen(false); sincronizarTarea(); }}
+              disabled={syncStatus.estado === 'sincronizando'}
+              style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}
+            >
+              {syncStatus.estado === 'sincronizando'
+                ? (<><Spinner animation="border" size="sm" className="me-2" />Sincronizando...</>)
+                : 'Sincronizar tarea'}
             </button>
           </div>
         )}
@@ -212,12 +231,6 @@ Pasos:
           </div>
         )}
       </div>
-      {/* Overlay spinner */}
-      {(loading || (tarea && tarea.estado === 'sincronizando')) && (
-        <div style={{position:'absolute',top:0,left:0,right:0,bottom:0, background:'rgba(255,255,255,0.7)', borderRadius:18, display:'flex', alignItems:'center', justifyContent:'center'}}>
-          <div className="lds-ring"><div></div><div></div><div></div><div></div></div>
-        </div>
-      )}
       {/* Modal para mostrar texto largo */}
       <Modal show={showTextoModal} onHide={() => setShowTextoModal(false)} size="lg">
         <Modal.Header closeButton>
