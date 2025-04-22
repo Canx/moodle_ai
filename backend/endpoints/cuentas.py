@@ -3,9 +3,8 @@ from sqlalchemy.orm import Session
 from models import CuentaMoodle
 from models_db import CuentaMoodleDB
 from database import get_db, engine
-from scraper import sincronizar_cursos_y_tareas, get_cursos_moodle, login_moodle
-from playwright.sync_api import sync_playwright
-import re
+from scraper import sincronizar_cursos_y_tareas
+from services.scraper_service import scrape_courses
 
 router = APIRouter()
 
@@ -130,18 +129,13 @@ def sincronizar_cursos_y_tareas_endpoint(cuenta_id: int, background_tasks: Backg
     )
     conn.commit()
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            login_moodle(page, url, usuario, contrasena)
-            cursos = get_cursos_moodle(page, url)
-            # Upsert cursos para preservar IDs
-            for curso in cursos:
-                cursor.execute(
-                    "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
-                    (cuenta_id, curso["nombre"], curso["url"])
-                )
-            browser.close()
+        cursos = scrape_courses(url, usuario, contrasena)
+        # Upsert cursos para preservar IDs
+        for curso in cursos:
+            cursor.execute(
+                "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
+                (cuenta_id, curso["nombre"], curso["url"])
+            )
         cursor.execute(
             "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
             (cuenta_id, "ok")
@@ -177,18 +171,13 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
     )
     conn.commit()
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            login_moodle(page, url, usuario, contrasena)
-            cursos = get_cursos_moodle(page, url)
-            # Upsert cursos para preservar IDs
-            for curso in cursos:
-                cursor.execute(
-                    "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
-                    (cuenta_id, curso["nombre"], curso["url"])
-                )
-            browser.close()
+        cursos = scrape_courses(url, usuario, contrasena)
+        # Upsert cursos para preservar IDs
+        for curso in cursos:
+            cursor.execute(
+                "INSERT INTO cursos (cuenta_id, nombre, url) VALUES (%s, %s, %s) ON CONFLICT (cuenta_id, url) DO UPDATE SET nombre = EXCLUDED.nombre",
+                (cuenta_id, curso["nombre"], curso["url"])
+            )
         cursor.execute(
             "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
             (cuenta_id, "ok")

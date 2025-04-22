@@ -5,6 +5,7 @@ import { Spinner } from "react-bootstrap";
 function TareasDeCurso() {
   const { cursoId, cuentaId, usuarioId } = useParams();
   const [tareas, setTareas] = useState([]);
+  const [syncStatus, setSyncStatus] = useState({ estado: 'no_iniciado', fecha: null });
   const pendingCount = tareas.filter(t => t.estado === 'pendiente_calificar').length;
 
   useEffect(() => {
@@ -20,24 +21,37 @@ function TareasDeCurso() {
     fetchTareas();
   }, [cursoId, cuentaId]);
 
+  useEffect(() => {
+    let interval;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch(`/api/cursos/${cursoId}/sincronizacion`);
+        if (res.ok) {
+          const data = await res.json();
+          setSyncStatus(data);
+          if (data.estado === 'completada') {
+            const resp = await fetch(`/api/cursos/${cursoId}/tareas`);
+            if (resp.ok) setTareas(await resp.json());
+            clearInterval(interval);
+          }
+        }
+      } catch {};
+    };
+    fetchStatus();
+    interval = setInterval(fetchStatus, 5000);
+    return () => clearInterval(interval);
+  }, [cursoId]);
+
   const [sincronizando, setSincronizando] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const sincronizarTareas = async () => {
     setSincronizando(true);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    setSyncStatus({ estado: 'sincronizando', fecha: new Date().toISOString() });
     try {
-      await fetch(`/api/cursos/${cursoId}/sincronizar_tareas`, { method: "POST", signal: controller.signal });
-      clearTimeout(timeoutId);
+      await fetch(`/api/cursos/${cursoId}/sincronizar_tareas`, { method: "POST" });
     } catch (e) {
-      console.error("Timeout sincronizando curso:", e);
-    }
-    // Polling para estado (opcional, aquí asumimos que es rápido)
-    const response = await fetch(`/api/cursos/${cursoId}/tareas`);
-    if (response.ok) {
-      const data = await response.json();
-      setTareas(data);
+      console.error("Error iniciando sincronización:", e);
     }
     setSincronizando(false);
   };
@@ -66,6 +80,13 @@ function TareasDeCurso() {
         </Link>
       </div>
       <h2>Tareas del Curso</h2>
+      {syncStatus.estado !== 'no_iniciado' && (
+        <div style={{ marginBottom: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {syncStatus.estado === 'sincronizando' && <Spinner animation="border" size="sm" className="me-2" />}
+          <span>Sincronización: {syncStatus.estado}</span>
+          {syncStatus.fecha && <small>({new Date(syncStatus.fecha).toLocaleTimeString()})</small>}
+        </div>
+      )}
       {tareas.length > 0 && (
         <div style={{ marginBottom: '12px', fontWeight: 500 }}>
           Tareas pendientes de calificar: {pendingCount}

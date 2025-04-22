@@ -5,8 +5,7 @@ from sqlalchemy.orm import Session
 from models import Tarea
 from models_db import TareaDB, CuentaMoodleDB, EntregaDB
 from database import get_db
-from scraper import get_tarea
-from playwright.sync_api import sync_playwright
+from services.scraper_service import scrape_task_details
 import re
 import time
 from datetime import datetime, timedelta
@@ -65,64 +64,65 @@ def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
     contrasena_moodle = cuenta.contrasena_moodle
     # 3. Hacer scraping bajo demanda con login
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            url_tarea = f"{moodle_url}/mod/assign/view.php?id={tarea.tarea_id}"
-            tarea_data = get_tarea(browser, moodle_url, usuario_moodle, contrasena_moodle, tarea.tarea_id)
-            descripcion_html = tarea_data['descripcion']
-            entregas = tarea_data['entregas_pendientes']
+        # Llamar al servicio puro para obtener descripción y entregas
+        tarea_data = scrape_task_details(moodle_url, usuario_moodle, contrasena_moodle, tarea.tarea_id)
+        descripcion_html = tarea_data['descripcion']
+        entregas = tarea_data['entregas_pendientes']
 
-            # Persistir entregas en la base de datos
-            for e in entregas:
-                # tomar el primer archivo si existe
-                archivos = e.get('archivos', [])
-                file_url = archivos[0]['url'] if archivos else None
-                file_name = archivos[0]['nombre'] if archivos else None
-                entrega_db = db.query(EntregaDB).filter(
-                    EntregaDB.tarea_id == tarea_id,
-                    EntregaDB.alumno_id == e['alumno_id']
-                ).first()
-                if not entrega_db:
-                    entrega_db = EntregaDB(tarea_id=tarea_id, alumno_id=e['alumno_id'])
-                entrega_db.fecha_entrega = e.get('fecha_entrega')
-                entrega_db.estado = e.get('estado')
-                entrega_db.nombre = e.get('nombre')
-                entrega_db.file_url = file_url
-                entrega_db.file_name = file_name
-                # Persistir texto en línea si existe
-                entrega_db.contenido = e.get('texto')
-                # Persistir nota quickgrade si existe
-                nota_text = e.get('nota')
-                if nota_text:
-                    try:
-                        entrega_db.nota = float(nota_text.replace(',', '.'))
-                    except:
-                        entrega_db.nota = None
-                db.add(entrega_db)
-            db.commit()
-
-            # Calcular el estado de la tarea según las entregas
-            if not entregas:
-                estado = 'sin_entregas'
-            elif any(e.get('estado', '').lower().startswith('enviado') or e.get('estado', '').lower().startswith('pendiente') for e in entregas):
-                estado = 'pendiente_calificar'
+        # Persistir entregas en la base de datos
+        for e in entregas:
+            # tomar el primer archivo si existe
+            archivos = e.get('archivos', [])
+            file_url = archivos[0]['url'] if archivos else None
+            file_name = archivos[0]['nombre'] if archivos else None
+            entrega_db = db.query(EntregaDB).filter(
+                EntregaDB.tarea_id == tarea_id,
+                EntregaDB.alumno_id == e['alumno_id']
+            ).first()
+            if not entrega_db:
+                entrega_db = EntregaDB(tarea_id=tarea_id, alumno_id=e['alumno_id'])
+            entrega_db.fecha_entrega = e.get('fecha_entrega')
+            entrega_db.estado = e.get('estado')
+            entrega_db.nombre = e.get('nombre')
+            entrega_db.file_url = file_url
+            entrega_db.file_name = file_name
+            # Persistir texto en línea si existe
+            entrega_db.contenido = e.get('texto')
+            # Persistir nota quickgrade si existe
+            nota_text = e.get('nota')
+            # Siempre actualizar la nota: None si no hay valor
+            if nota_text:
+                try:
+                    entrega_db.nota = float(nota_text.replace(',', '.'))
+                except:
+                    entrega_db.nota = None
             else:
-                estado = 'evaluada'
-            now_str = datetime.now().isoformat()
-            # Actualizar descripción, fecha y estado final
-            db.query(TareaDB).filter(TareaDB.id == tarea_id).update({
-                "descripcion": descripcion_html,
-                "fecha_sincronizacion": now_str,
-                "estado": estado
-            })
-            db.commit()
-            # Eliminar entregas no encontradas en el scraping (usuarios ya no matriculados)
-            scraped_ids = [e['alumno_id'] for e in entregas]
-            db.query(EntregaDB) \
-                .filter(EntregaDB.tarea_id == tarea_id, ~EntregaDB.alumno_id.in_(scraped_ids)) \
-                .delete(synchronize_session=False)
-            db.commit()
-            return {"descripcion": descripcion_html, "estado": estado}
+                entrega_db.nota = None
+            db.add(entrega_db)
+        db.commit()
+
+        # Calcular el estado de la tarea según las entregas
+        if not entregas:
+            estado = 'sin_entregas'
+        elif any(e.get('estado', '').lower().startswith('enviado') or e.get('estado', '').lower().startswith('pendiente') for e in entregas):
+            estado = 'pendiente_calificar'
+        else:
+            estado = 'evaluada'
+        now_str = datetime.now().isoformat()
+        # Actualizar descripción, fecha y estado final
+        db.query(TareaDB).filter(TareaDB.id == tarea_id).update({
+            "descripcion": descripcion_html,
+            "fecha_sincronizacion": now_str,
+            "estado": estado
+        })
+        db.commit()
+        # Eliminar entregas no encontradas en el scraping (usuarios ya no matriculados)
+        scraped_ids = [e['alumno_id'] for e in entregas]
+        db.query(EntregaDB) \
+            .filter(EntregaDB.tarea_id == tarea_id, ~EntregaDB.alumno_id.in_(scraped_ids)) \
+            .delete(synchronize_session=False)
+        db.commit()
+        return {"descripcion": descripcion_html, "estado": estado}
     except Exception as e:
         # Rollback para limpiar la transacción abortada y permitir actualizar estado
         db.rollback()
