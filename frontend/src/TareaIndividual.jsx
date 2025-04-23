@@ -15,6 +15,7 @@ function TareaIndividual() {
   const [syncStatus, setSyncStatus] = useState({estado:'no_iniciado', fecha: null});
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // Mostrar la descripción local al cargar la tarea si existe
   useEffect(() => {
@@ -133,6 +134,16 @@ function TareaIndividual() {
             </div>
           );
         })()
+      )}
+      {(tarea.tipo_calificacion === 'guide' || tarea.tipo_calificacion === 'rubric') && (
+        <div style={{marginBottom: '18px'}}>
+          <button onClick={() => setGuideOpen(o => !o)} style={{background: '#1976d2', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 16px', fontWeight: 600, fontSize: '1rem', cursor: 'pointer', marginBottom: 6}}>
+            {guideOpen ? 'Ocultar guía de evaluación' : 'Mostrar guía de evaluación'}
+          </button>
+          {guideOpen && tarea.detalles_calificacion && (
+            <div style={{marginTop: '10px', width: '100%', color: '#444', fontSize: '1.08rem', background: '#f7f7fa', borderRadius: 8, padding: 18}} dangerouslySetInnerHTML={{ __html: tarea.detalles_calificacion }} />
+          )}
+        </div>
       )}
       {error && <div style={{ color: "#d32f2f", background: '#fff0f0', borderRadius: 6, padding: '8px 14px', marginBottom: 10 }}>{error}</div>}
       {/* Descripción colapsable */}
