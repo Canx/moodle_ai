@@ -2,7 +2,7 @@ import re
 from playwright.sync_api import sync_playwright
 from playwright.async_api import async_playwright
 import asyncio
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs
 
 # Servicio puro de scraping de Moodle: sin lógica de BD ni endpoints.
 
@@ -193,80 +193,6 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
     return tareas
 
 
-def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
-    with sync_playwright() as p:
-        browser2 = p.chromium.launch(headless=True)
-        context = browser2.new_context()
-        page = context.new_page()
-        login_moodle(page, moodle_url, usuario, contrasena)
-        # descripción
-        page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}", wait_until="domcontentloaded")
-        desc = None
-        try:
-            page.wait_for_selector("div.activity-description#intro", timeout=5000)
-            desc = page.inner_html("div.activity-description#intro")
-        except:
-            desc = None
-        # calificación avanzada
-        tipo_calificacion = None
-        detalles_calificacion = None
-        try:
-            form = page.query_selector("form#activemethodselector")
-            if form:
-                select = form.query_selector("select[name='setmethod']")
-                if select:
-                    # buscar opción seleccionada
-                    for opt in select.query_selector_all("option"):
-                        if opt.get_attribute("selected") is not None:
-                            tipo_calificacion = opt.get_attribute("value")
-                            break
-                    if not tipo_calificacion:
-                        tipo_calificacion = select.get_attribute("data-init-value")
-                detalles_calificacion = form.inner_html()
-        except:
-            pass
-        # entregas
-        page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", timeout=15000, wait_until="networkidle")
-        page.wait_for_selector("table.generaltable", timeout=10000)
-        # Seleccionar "Sin filtro" para mostrar todos los registros
-        try:
-            page.wait_for_selector("select#id_filter", timeout=5000)
-            page.select_option("select#id_filter", "")
-            page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
-        except Exception:
-            # Fallback si no existe el selector de filtro
-            pass
-        # obtener tipo de evaluación tras cargar grading page
-        try:
-            form = page.query_selector("form#activemethodselector")
-            if form:
-                select = form.query_selector("select[name='setmethod']")
-                if select:
-                    for opt in select.query_selector_all("option"):
-                        if opt.get_attribute("selected") is not None:
-                            tipo_calificacion = opt.get_attribute("value")
-                            break
-                    if not tipo_calificacion:
-                        tipo_calificacion = select.get_attribute("data-init-value")
-                detalles_calificacion = form.inner_html()
-        except:
-            pass
-        entregas = get_entregas_pendientes(page, tarea_id)
-        browser2.close()
-        # DEBUG: mostrar tipo y fragmento de detalles de calificación avanzada (sync)
-        print(f"DEBUG get_tarea final: tarea_id={tarea_id}, tipo_calificacion={tipo_calificacion!r}")
-        if detalles_calificacion:
-            print(f"DEBUG detalles_calificacion sync[:200]: {detalles_calificacion[:200]!r}")
-        else:
-            print("DEBUG detalles_calificacion sync: None")
-        return {
-            "descripcion": desc,
-            "entregas_pendientes": entregas,
-            "tipo_calificacion": tipo_calificacion,
-            "detalles_calificacion": detalles_calificacion
-        }
-
-
 def scrape_courses(moodle_url, usuario, contrasena):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -400,17 +326,64 @@ async def get_entregas_pendientes_async(page, tarea_id):
     return entregas
 
 
+async def _get_contextid_async(page, moodle_url, tarea_id):
+    # Navigate to module settings to retrieve context
+    await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}", wait_until="networkidle")
+    hidden = await page.query_selector("input[name='context']")
+    if hidden:
+        return await hidden.get_attribute("value")
+    link = await page.wait_for_selector("a[href*='/grade/grading/manage.php']", timeout=5000)
+    href = await link.get_attribute("href")
+    parsed = urlparse(href)
+    qs = parse_qs(parsed.query)
+    return qs.get('contextid', [None])[0]
+
+
+async def _get_advanced_grading_async(page, moodle_url, contextid):
+    # Scrape grading type and preview from manage.php
+    url = f"{moodle_url}/grade/grading/manage.php?contextid={contextid}&component=mod_assign&area=submissions"
+    await page.goto(url, wait_until="networkidle")
+    select = await page.wait_for_selector("select[name='setmethod']", timeout=5000)
+    # list options for debug
+    opts = await select.query_selector_all("option")
+    for o in opts:
+        val = await o.evaluate("el => el.value")
+        txt = await o.evaluate("el => el.textContent")
+        sel = await o.get_attribute("selected")
+        print(f"DEBUG option: value={val!r}, selected={sel!r}, text={txt!r}")
+    tipo = await select.evaluate("el => el.value")
+    preview_sel = ".definition-preview"
+    detalles = None
+    if await page.query_selector(preview_sel):
+        detalles = await page.inner_html(preview_sel)
+    return tipo, detalles
+
+
+async def _get_task_description_async(page, moodle_url, tarea_id):
+    # Scrape task description
+    await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}", wait_until="domcontentloaded")
+    try:
+        await page.wait_for_selector("div.activity-description#intro", timeout=5000)
+        return await page.inner_html("div.activity-description#intro")
+    except:
+        return None
+
+
 async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context()
         page = await context.new_page()
         await login_moodle_async(page, moodle_url, usuario, contrasena)
-        # Inicializar variables de calificación avanzada
-        config_tipo = None
-        detalles_calificacion = None
-        # navegar a la pestaña de grading para obtener tipo y entregas
-        await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", timeout=15000, wait_until="networkidle")
+        # Advanced grading: get contextid and scrape details
+        contextid = await _get_contextid_async(page, moodle_url, tarea_id)
+        config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
+
+        # Task description
+        desc = await _get_task_description_async(page, moodle_url, tarea_id)
+
+        # Entregas
+        await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", wait_until="networkidle")
         await page.wait_for_selector("table.generaltable", timeout=10000)
         try:
             await page.wait_for_selector("select#id_filter", timeout=5000)
@@ -418,35 +391,7 @@ async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
             await page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
         except:
             pass
-        # Obtener tipo de evaluación desde formulario de grading
-        try:
-            form = await page.query_selector("form#activemethodselector")
-            if form:
-                select = await form.query_selector("select[name='setmethod']")
-                config_tipo = await select.evaluate("el => el.value")
-        except:
-            config_tipo = None
         entregas = await get_entregas_pendientes_async(page, tarea_id)
-        # fallback: obtener detalle desde manage.php
-        if not detalles_calificacion:
-            try:
-                form = await page.query_selector("form#activemethodselector")
-                if form:
-                    action_attr = await form.get_attribute("action")
-                    context_el = await form.query_selector("input[name='contextid']")
-                    component_el = await form.query_selector("input[name='component']")
-                    area_el = await form.query_selector("input[name='area']")
-                    contextid = await context_el.get_attribute("value") if context_el else None
-                    component = await component_el.get_attribute("value") if component_el else None
-                    area = await area_el.get_attribute("value") if area_el else None
-                    if action_attr and contextid and component and area:
-                        manage_base = urljoin(page.url(), action_attr)
-                        manage_url = f"{manage_base}?contextid={contextid}&component={component}&area={area}"
-                        await page.goto(manage_url, wait_until="domcontentloaded")
-                        await page.wait_for_selector(".definition-preview", timeout=5000)
-                        detalles_calificacion = await page.inner_html(".definition-preview")
-            except:
-                pass
         await browser.close()
         # DEBUG: mostrar tipo y fragmento de detalles de calificación avanzada (async)
         print(f"DEBUG scrape_task_details_async: tarea_id={tarea_id}, tipo_calificacion={config_tipo!r}")
@@ -455,7 +400,7 @@ async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
         else:
             print("DEBUG detalles_calificacion async: None")
         return {
-            "descripcion": None,
+            "descripcion": desc,
             "entregas_pendientes": entregas,
             "tipo_calificacion": config_tipo,
             "detalles_calificacion": detalles_calificacion
