@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from models_db import CursoDB, CuentaMoodleDB, TareaDB, EntregaDB, SincronizacionDB
 from database import get_db, SessionLocal
-from services.scraper_service import scrape_tasks
+from services.scraper_service import scrape_tasks, scrape_task_details
 from datetime import datetime
 import traceback
 
@@ -39,13 +39,23 @@ def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str
                 estado = 'pendiente_calificar'
             else:
                 estado = 'sin_pendientes'
+            # Obtener descripción de la tarea
+            descripcion = None
+            try:
+                details = scrape_task_details(moodle_url, usuario, contrasena, tarea['tarea_id'])
+                descripcion = details.get('descripcion')
+            except Exception:
+                descripcion = None
             nueva_tarea = TareaDB(
                 cuenta_id=cuenta_id,
                 curso_id=curso_id,
                 tarea_id=tarea['tarea_id'],
                 titulo=tarea['titulo'],
+                descripcion=descripcion,
                 estado=estado,
-                calificacion_maxima=tarea.get('calificacion_maxima')
+                calificacion_maxima=tarea.get('calificacion_maxima'),
+                tipo_calificacion=tarea.get('tipo_calificacion'),
+                detalles_calificacion=tarea.get('detalles_calificacion')
             )
             db_task.add(nueva_tarea)
             db_task.commit()
@@ -79,6 +89,8 @@ def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str
             sin.fecha=datetime.utcnow()
             db_task.commit()
     except Exception as e:
+        # Limpiar la sesión tras fallo para evitar transacción abortada
+        db_task.rollback()
         # Log exception stack and message
         traceback.print_exc()
         sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id==cuenta_id).first()

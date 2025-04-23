@@ -108,6 +108,9 @@ function TareaIndividual() {
         <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none'}}>&larr; Volver a tareas</Link>
       </div>
       <h2 style={{fontSize: '2rem', color: '#1976d2', marginBottom: 18, textAlign: 'center'}}>{tarea.titulo}</h2>
+      <p style={{textAlign: 'center', marginBottom: '18px', fontSize: '1rem'}}>
+        Tipo de evaluación: <strong>{tarea.tipo_calificacion || 'none'}</strong>
+      </p>
       {/* Métricas de entregas vs total y evaluaciones vs entregadas */}
       {entregas && (
         (() => {
@@ -194,7 +197,7 @@ function TareaIndividual() {
                         const hasFile = entrega.archivos && entrega.archivos.length > 0;
                         const promptText = `Por favor evalúa la entrega para la tarea "${tarea.titulo}".
 Descripción de la tarea:
-${tarea.descripcion}
+${desc || ''}
 
 Archivo: ${fileName}
 

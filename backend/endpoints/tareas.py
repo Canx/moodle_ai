@@ -27,6 +27,8 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
             "calificacion_maxima": tarea.calificacion_maxima,
             "estado": tarea.estado,
             "fecha_sincronizacion": tarea.fecha_sincronizacion,
+            "tipo_calificacion": tarea.tipo_calificacion,
+            "detalles_calificacion": tarea.detalles_calificacion,
         }
     # Si no existe, intentar sincronizar tareas del curso indicado (si se pasa curso_id)
     if curso_id is not None:
@@ -44,6 +46,8 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
                 "calificacion_maxima": tarea.calificacion_maxima,
                 "estado": tarea.estado,
                 "fecha_sincronizacion": tarea.fecha_sincronizacion,
+                "tipo_calificacion": tarea.tipo_calificacion,
+                "detalles_calificacion": tarea.detalles_calificacion,
             }
         raise HTTPException(status_code=404, detail="Tarea no encontrada tras sincronizar el curso indicado")
     raise HTTPException(status_code=404, detail="Tarea no encontrada y no se puede sincronizar porque no se conoce el curso")
@@ -116,7 +120,9 @@ async def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
         db.query(TareaDB).filter(TareaDB.id == tarea_id).update({
             "descripcion": descripcion_html,
             "fecha_sincronizacion": now_str,
-            "estado": estado
+            "estado": estado,
+            "tipo_calificacion": tarea_data.get("tipo_calificacion"),
+            "detalles_calificacion": tarea_data.get("detalles_calificacion")
         })
         db.commit()
         # Eliminar entregas no encontradas en el scraping (usuarios ya no matriculados)

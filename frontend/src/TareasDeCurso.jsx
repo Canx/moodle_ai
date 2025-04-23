@@ -103,7 +103,7 @@ function TareasDeCurso() {
               Entregadas: {tarea.entregadas}
             </div>
             <div style={{ fontSize: '0.95rem', color: '#555', marginBottom: 8 }}>
-              Pendientes por calificar: {tarea.pendientes}
+              Sin calificación: {tarea.pendientes}
             </div>
             <span style={{
               display: 'inline-block',

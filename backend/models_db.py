@@ -39,6 +39,8 @@ class TareaDB(Base):
     fecha_sincronizacion = Column(String)
     estado = Column(String)
     calificacion_maxima = Column(Float)
+    tipo_calificacion = Column(String, nullable=True)  # 'none', 'guide', 'rubric'
+    detalles_calificacion = Column(Text, nullable=True)  # JSON de criterios o ítems de evaluación avanzados
     oculto = Column(Boolean, default=False, nullable=False)
     __table_args__ = (UniqueConstraint('curso_id', 'tarea_id', name='uq_tarea_curso_tareaid'),)
 

@@ -46,7 +46,7 @@ def get_entregas_pendientes(page, tarea_id):
             archivo_col_idx = idx
         if "Texto en línea" in txt:
             texto_col_idx = idx
-        if "Nota" in txt or "Calificación" in txt:
+        if ("Nota" in txt or "Calificación" in txt) and nota_col_idx is None:
             nota_col_idx = idx
     filas = page.query_selector_all("table.generaltable tbody tr")
     for fila in filas:
@@ -71,9 +71,15 @@ def get_entregas_pendientes(page, tarea_id):
         # fallback en columna de nota
         if nota is None and nota_col_idx is not None and nota_col_idx < len(tds):
             raw = tds[nota_col_idx].inner_text().strip()
-            m = re.search(r"\d+[\.,]\d+", raw)
+            # intentar extraer patrón 'nota / máxima'
+            m = re.search(r"(\d+[\.,]\d+)\s*/\s*(\d+[\.,]\d+)", raw)
             if m:
-                nota = m.group()
+                nota = m.group(1)
+            else:
+                # fallback si no hay '/', extraer primer número decimal
+                m2 = re.search(r"\d+[\.,]\d+", raw)
+                if m2:
+                    nota = m2.group()
         archivos = []
         if archivo_col_idx is not None and archivo_col_idx < len(tds):
             for a in tds[archivo_col_idx].query_selector_all("a"):
@@ -81,10 +87,13 @@ def get_entregas_pendientes(page, tarea_id):
                     "nombre": a.inner_text().strip(),
                     "url": a.get_attribute("href")
                 })
+        # Obtener enlace de calificación usando el índice dinámico de nota
         link = None
-        sel = fila.query_selector("td.c5 a.btn.btn-primary")
-        if sel:
-            link = sel.get_attribute("href")
+        if nota_col_idx is not None and nota_col_idx < len(tds):
+            grade_cell = tds[nota_col_idx]
+            sel = grade_cell.query_selector("a.btn.btn-primary")
+            if sel:
+                link = sel.get_attribute("href")
         entregas.append({
             "alumno_id": alumno_id,
             "nombre": nombre,
@@ -140,6 +149,15 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
             calif_max = float(val) if val else None
         except:
             calif_max = None
+        # Obtener tipo de calificación desde la página de configuración
+        tipo_calificacion = None
+        try:
+            sel = page.query_selector("select#id_advancedgradingmethod_submissions")
+            if sel:
+                opt = sel.query_selector("option[selected]")
+                tipo_calificacion = opt.get_attribute("value") if opt else sel.get_attribute("value")
+        except:
+            tipo_calificacion = None
         # Obtener entregas pendientes
         page.goto(f"{moodle_url}/mod/assign/view.php?id={tid}&action=grading", timeout=15000, wait_until="domcontentloaded")
         page.wait_for_selector("table.generaltable", timeout=10000)
@@ -152,6 +170,13 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
         except Exception:
             # Fallback si no existe el selector de filtro
             pass
+        detalles_calificacion = None
+        try:
+            form = page.query_selector("form#activemethodselector")
+            if form:
+                detalles_calificacion = form.inner_html()
+        except:
+            pass
         entregas = get_entregas_pendientes(page, tid)
         tareas.append({
             "cuenta_id": cuenta_id,
@@ -159,7 +184,9 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
             "titulo": nm,
             "url": url,
             "calificacion_maxima": calif_max,
-            "entregas_pendientes": entregas
+            "entregas_pendientes": entregas,
+            "tipo_calificacion": tipo_calificacion,
+            "detalles_calificacion": detalles_calificacion
         })
     return tareas
 
@@ -178,6 +205,24 @@ def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
             desc = page.inner_html("div.activity-description#intro")
         except:
             desc = None
+        # calificación avanzada
+        tipo_calificacion = None
+        detalles_calificacion = None
+        try:
+            form = page.query_selector("form#activemethodselector")
+            if form:
+                select = form.query_selector("select[name='setmethod']")
+                if select:
+                    # buscar opción seleccionada
+                    for opt in select.query_selector_all("option"):
+                        if opt.get_attribute("selected") is not None:
+                            tipo_calificacion = opt.get_attribute("value")
+                            break
+                    if not tipo_calificacion:
+                        tipo_calificacion = select.get_attribute("data-init-value")
+                detalles_calificacion = form.inner_html()
+        except:
+            pass
         # entregas
         page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", timeout=15000, wait_until="networkidle")
         page.wait_for_selector("table.generaltable", timeout=10000)
@@ -189,9 +234,35 @@ def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
         except Exception:
             # Fallback si no existe el selector de filtro
             pass
+        # obtener tipo de evaluación tras cargar grading page
+        try:
+            form = page.query_selector("form#activemethodselector")
+            if form:
+                select = form.query_selector("select[name='setmethod']")
+                if select:
+                    for opt in select.query_selector_all("option"):
+                        if opt.get_attribute("selected") is not None:
+                            tipo_calificacion = opt.get_attribute("value")
+                            break
+                    if not tipo_calificacion:
+                        tipo_calificacion = select.get_attribute("data-init-value")
+                detalles_calificacion = form.inner_html()
+        except:
+            pass
         entregas = get_entregas_pendientes(page, tarea_id)
         browser2.close()
-        return {"descripcion": desc, "entregas_pendientes": entregas}
+        # DEBUG: mostrar tipo y fragmento de detalles de calificación avanzada (sync)
+        print(f"DEBUG get_tarea final: tarea_id={tarea_id}, tipo_calificacion={tipo_calificacion!r}")
+        if detalles_calificacion:
+            print(f"DEBUG detalles_calificacion sync[:200]: {detalles_calificacion[:200]!r}")
+        else:
+            print("DEBUG detalles_calificacion sync: None")
+        return {
+            "descripcion": desc,
+            "entregas_pendientes": entregas,
+            "tipo_calificacion": tipo_calificacion,
+            "detalles_calificacion": detalles_calificacion
+        }
 
 
 def scrape_courses(moodle_url, usuario, contrasena):
@@ -211,6 +282,15 @@ def scrape_tasks(moodle_url, usuario, contrasena, curso_url, hidden_ids=None):
         login_moodle(page, moodle_url, usuario, contrasena)
         curso = {"url": curso_url}
         tareas = get_tareas_de_curso(browser, page, moodle_url, None, curso, hidden_ids)
+        # incluir tipo y detalles avanzados en cada tarea
+        for t in tareas:
+            try:
+                details = get_tarea(browser, moodle_url, usuario, contrasena, t["tarea_id"])
+                t["tipo_calificacion"] = details.get("tipo_calificacion")
+                t["detalles_calificacion"] = details.get("detalles_calificacion")
+            except:
+                t["tipo_calificacion"] = None
+                t["detalles_calificacion"] = None
         browser.close()
         return tareas
 
@@ -251,7 +331,7 @@ async def get_entregas_pendientes_async(page, tarea_id):
             archivo_col_idx = idx
         if "Texto en línea" in txt:
             texto_col_idx = idx
-        if "Nota" in txt or "Calificación" in txt:
+        if ("Nota" in txt or "Calificación" in txt) and nota_col_idx is None:
             nota_col_idx = idx
     filas = await page.query_selector_all("table.generaltable tbody tr")
     for fila in filas:
@@ -277,9 +357,15 @@ async def get_entregas_pendientes_async(page, tarea_id):
                 break
         if nota is None and nota_col_idx is not None and nota_col_idx < len(tds):
             raw = (await tds[nota_col_idx].inner_text()).strip()
-            m = re.search(r"\d+[\.,]\d+", raw)
+            # intentar extraer patrón 'nota / máxima'
+            m = re.search(r"(\d+[\.,]\d+)\s*/\s*(\d+[\.,]\d+)", raw)
             if m:
-                nota = m.group()
+                nota = m.group(1)
+            else:
+                # fallback si no hay '/', extraer primer número decimal
+                m2 = re.search(r"\d+[\.,]\d+", raw)
+                if m2:
+                    nota = m2.group()
         archivos = []
         if archivo_col_idx is not None and archivo_col_idx < len(tds):
             links = await tds[archivo_col_idx].query_selector_all("a")
@@ -288,8 +374,13 @@ async def get_entregas_pendientes_async(page, tarea_id):
                     "nombre": (await a.inner_text()).strip(),
                     "url": await a.get_attribute("href")
                 })
-        sel = await fila.query_selector("td.c5 a.btn.btn-primary")
-        link = await sel.get_attribute("href") if sel else None
+        # Obtener enlace de calificación usando el índice dinámico de nota
+        link = None
+        if nota_col_idx is not None and nota_col_idx < len(tds):
+            grade_cell = tds[nota_col_idx]
+            sel = await grade_cell.query_selector("a.btn.btn-primary")
+            if sel:
+                link = await sel.get_attribute("href")
         entregas.append({
             "alumno_id": alumno_id,
             "nombre": nombre,
@@ -309,14 +400,42 @@ async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
         context = await browser.new_context()
         page = await context.new_page()
         await login_moodle_async(page, moodle_url, usuario, contrasena)
+        # Obtener tipo de calificación desde configuración (async)
+        config_tipo = None
+        try:
+            await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}", wait_until="networkidle")
+            sel = await page.query_selector("select#id_advancedgradingmethod_submissions")
+            if sel:
+                opt = await sel.query_selector("option[selected]")
+                config_tipo = await opt.get_attribute("value") if opt else await sel.get_attribute("value")
+        except:
+            config_tipo = None
         # descripción
-        desc = None
         await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}", wait_until="domcontentloaded")
+        desc = None
         try:
             await page.wait_for_selector("div.activity-description#intro", timeout=5000)
             desc = await page.inner_html("div.activity-description#intro")
         except:
             desc = None
+        # calificación avanzada
+        tipo_calificacion = None
+        detalles_calificacion = None
+        try:
+            form = await page.query_selector("form#activemethodselector")
+            if form:
+                select = await form.query_selector("select[name='setmethod']")
+                if select:
+                    opts = await select.query_selector_all("option")
+                    for opt in opts:
+                        if await opt.get_attribute("selected") is not None:
+                            tipo_calificacion = await opt.get_attribute("value")
+                            break
+                    if not tipo_calificacion:
+                        tipo_calificacion = await select.get_attribute("data-init-value")
+                detalles_calificacion = await form.inner_html()
+        except:
+            pass
         # entregas
         await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", timeout=15000, wait_until="networkidle")
         await page.wait_for_selector("table.generaltable", timeout=10000)
@@ -326,6 +445,36 @@ async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
             await page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
         except:
             pass
+        # obtener tipo de evaluación tras cargar grading page (async)
+        try:
+            form = await page.query_selector("form#activemethodselector")
+            if form:
+                select = await form.query_selector("select[name='setmethod']")
+                if select:
+                    opts = await select.query_selector_all("option")
+                    for opt in opts:
+                        if await opt.get_attribute("selected") is not None:
+                            tipo_calificacion = await opt.get_attribute("value")
+                            break
+                    if not tipo_calificacion:
+                        tipo_calificacion = await select.get_attribute("data-init-value")
+                detalles_calificacion = await form.inner_html()
+        except:
+            pass
         entregas = await get_entregas_pendientes_async(page, tarea_id)
         await browser.close()
-        return {"descripcion": desc, "entregas_pendientes": entregas}
+        # Anular tipo_calificacion con valor de configuración si existe
+        if config_tipo is not None:
+            tipo_calificacion = config_tipo
+        # DEBUG: mostrar tipo y fragmento de detalles de calificación avanzada (async)
+        print(f"DEBUG scrape_task_details_async: tarea_id={tarea_id}, tipo_calificacion={tipo_calificacion!r}")
+        if detalles_calificacion:
+            print(f"DEBUG detalles_calificacion async[:200]: {detalles_calificacion[:200]!r}")
+        else:
+            print("DEBUG detalles_calificacion async: None")
+        return {
+            "descripcion": desc,
+            "entregas_pendientes": entregas,
+            "tipo_calificacion": tipo_calificacion,
+            "detalles_calificacion": detalles_calificacion
+        }
