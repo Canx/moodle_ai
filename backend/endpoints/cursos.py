@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from models_db import CursoDB, CuentaMoodleDB, TareaDB, EntregaDB, SincronizacionDB
@@ -102,7 +102,7 @@ def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str
         db_task.close()
 
 @router.post("/api/cursos/{curso_id}/sincronizar_tareas")
-def sincronizar_tareas_curso(curso_id: int, background_tasks: BackgroundTasks):
+def sincronizar_tareas_curso(curso_id: int):
     db = SessionLocal()
     curso = db.query(CursoDB).filter(CursoDB.id == curso_id).first()
     if not curso:
@@ -121,7 +121,9 @@ def sincronizar_tareas_curso(curso_id: int, background_tasks: BackgroundTasks):
         sin.estado='sincronizando'
         sin.fecha=now
     db.commit()
-    background_tasks.add_task(run_sync_tareas, cuenta.id, curso_id, cuenta.moodle_url, cuenta.usuario_moodle, cuenta.contrasena_moodle, curso.url)
+    # Encolar sincronización en worker Celery (import local para evitar ciclo)
+    from tasks import run_sync_tareas_task
+    run_sync_tareas_task.delay(cuenta.id, curso_id, cuenta.moodle_url, cuenta.usuario_moodle, cuenta.contrasena_moodle, curso.url)
     db.close()
     return {"mensaje": "Sincronización iniciada"}
 

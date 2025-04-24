@@ -19,8 +19,10 @@ def login_moodle(page, moodle_url, usuario, contrasena):
         page.wait_for_load_state("networkidle", timeout=10000)
     except:
         pass
-    if page.is_visible("#loginerrormessage"):
-        mensaje = page.inner_text("#loginerrormessage")
+    # Comprobar rápidamente si hay mensaje de error de login sin esperar
+    error_el = page.query_selector("#loginerrormessage")
+    if error_el:
+        mensaje = error_el.inner_text()
         raise Exception(f"Login fallido: {mensaje}")
 
 
@@ -162,24 +164,29 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
             tipo_calificacion = None
         # Obtener entregas pendientes
         page.goto(f"{moodle_url}/mod/assign/view.php?id={tid}&action=grading", timeout=15000, wait_until="domcontentloaded")
-        page.wait_for_selector("table.generaltable", timeout=10000)
-        # Seleccionar "Sin filtro" en el selector de filtro
         try:
-            page.wait_for_selector("select#id_filter", timeout=5000)
-            page.select_option("select#id_filter", "")
-            # Esperar que la tabla se recargue con el filtro aplicado
-            page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
-        except Exception:
-            # Fallback si no existe el selector de filtro
-            pass
-        detalles_calificacion = None
-        try:
-            form = page.query_selector("form#activemethodselector")
-            if form:
-                detalles_calificacion = form.inner_html()
-        except:
-            pass
-        entregas = get_entregas_pendientes(page, tid)
+            page.wait_for_selector("table.generaltable", timeout=10000)
+            # Seleccionar "Sin filtro" en el selector de filtro
+            try:
+                page.wait_for_selector("select#id_filter", timeout=5000)
+                page.select_option("select#id_filter", "")
+                # Esperar que la tabla se recargue con el filtro aplicado
+                page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
+            except Exception:
+                # Fallback si no existe el selector de filtro
+                pass
+            detalles_calificacion = None
+            try:
+                form = page.query_selector("form#activemethodselector")
+                if form:
+                    detalles_calificacion = form.inner_html()
+            except:
+                pass
+            entregas = get_entregas_pendientes(page, tid)
+        except Exception as e:
+            # Si no hay tabla de entregas o hay un error, no hay entregas pendientes
+            entregas = []
+            detalles_calificacion = None
         tareas.append({
             "cuenta_id": cuenta_id,
             "tarea_id": tid,
@@ -248,8 +255,10 @@ async def login_moodle_async(page, moodle_url, usuario, contrasena):
         await page.wait_for_load_state("networkidle", timeout=10000)
     except:
         pass
-    if await page.is_visible("#loginerrormessage"):
-        mensaje = await page.inner_text("#loginerrormessage")
+    # Comprobar rápidamente si hay mensaje de error de login sin esperar
+    error_el = page.query_selector("#loginerrormessage")
+    if error_el:
+        mensaje = await error_el.inner_text()
         raise Exception(f"Login fallido: {mensaje}")
 
 
