@@ -3,6 +3,9 @@ from playwright.sync_api import sync_playwright
 from playwright.async_api import async_playwright
 import asyncio
 from urllib.parse import urljoin, urlparse, parse_qs
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Servicio puro de scraping de Moodle: sin lógica de BD ni endpoints.
 
@@ -116,6 +119,8 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
     if not match:
         return []
     cid = int(match.group(1))
+    print(f"SCRAPER: Iniciando extracción de tareas para curso id={cid}")
+    logger.info(f" Iniciando extracción de tareas para curso id={cid}")
     page.goto(f"{moodle_url}/course/view.php?id={cid}", wait_until="networkidle")
     # Extraer lista estática de tareas antes de navegar entre páginas
     tareas_info = []
@@ -135,23 +140,30 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
             continue
         seen.add(tid)
         tareas_info.append({"tarea_id": tid, "titulo": nm, "url": url})
+    print(f"SCRAPER: Encontradas {len(tareas_info)} tareas en curso {cid}")
+    logger.info(f" Encontradas {len(tareas_info)} tareas en curso {cid}")
     # Procesar cada tarea individualmente
     tareas = []
     for info in tareas_info:
         tid = info["tarea_id"]
+        nm = info["titulo"]
+        print(f"SCRAPER: Procesando tarea {tid}: {nm}")
+        logger.info(f" Procesando tarea {tid}: {nm}")
         # Omitir tareas ocultas si se proporcionaron
         if hidden_ids and tid in hidden_ids:
             continue
-        nm = info["titulo"]
         url = info["url"]
-        # Obtener calificación máxima
-        calif_max = None
-        try:
-            page.goto(f"{moodle_url}/course/modedit.php?update={tid}", wait_until="networkidle")
-            page.wait_for_selector("#id_grade_modgrade_point", timeout=5000)
-            val = page.query_selector("#id_grade_modgrade_point").get_attribute("value")
+        # Obtener calificación máxima via query_selector
+        print(f"SCRAPER: Navegando a edición de tarea {tid}")
+        page.goto(f"{moodle_url}/course/modedit.php?update={tid}", wait_until="domcontentloaded", timeout=10000)
+        print("SCRAPER: Página de edición cargada")
+        input_el = page.query_selector("#id_grade_modgrade_point")
+        if input_el:
+            val = input_el.get_attribute("value")
             calif_max = float(val) if val else None
-        except:
+            print(f"SCRAPER: Calificación máxima: {calif_max}")
+        else:
+            print("SCRAPER: Input de calificación no encontrado")
             calif_max = None
         # Obtener tipo de calificación desde la página de configuración
         tipo_calificacion = None
@@ -163,17 +175,17 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
         except:
             tipo_calificacion = None
         # Obtener entregas pendientes
-        page.goto(f"{moodle_url}/mod/assign/view.php?id={tid}&action=grading", timeout=15000, wait_until="domcontentloaded")
-        try:
-            page.wait_for_selector("table.generaltable", timeout=10000)
-            # Seleccionar "Sin filtro" en el selector de filtro
+        print(f"SCRAPER: Navegando a grading de tarea {tid}")
+        page.goto(f"{moodle_url}/mod/assign/view.php?id={tid}&action=grading", wait_until="domcontentloaded", timeout=15000)
+        print("SCRAPER: Página de grading cargada")
+        table = page.query_selector("table.generaltable")
+        if table:
+            print("SCRAPER: Tabla de entregas encontrada")
             try:
                 page.wait_for_selector("select#id_filter", timeout=5000)
                 page.select_option("select#id_filter", "")
-                # Esperar que la tabla se recargue con el filtro aplicado
                 page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
-            except Exception:
-                # Fallback si no existe el selector de filtro
+            except:
                 pass
             detalles_calificacion = None
             try:
@@ -183,8 +195,8 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
             except:
                 pass
             entregas = get_entregas_pendientes(page, tid)
-        except Exception as e:
-            # Si no hay tabla de entregas o hay un error, no hay entregas pendientes
+        else:
+            print("SCRAPER: Tabla de entregas no encontrada")
             entregas = []
             detalles_calificacion = None
         tareas.append({
@@ -205,6 +217,8 @@ def scrape_courses(moodle_url, usuario, contrasena):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         login_moodle(page, moodle_url, usuario, contrasena)
+        print("SCRAPER: Login realizado")
+        logger.info(" Login realizado")
         cursos = get_cursos_moodle(page, moodle_url)
         browser.close()
         return cursos
@@ -212,9 +226,15 @@ def scrape_courses(moodle_url, usuario, contrasena):
 
 def scrape_tasks(moodle_url, usuario, contrasena, curso_url, hidden_ids=None):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
         page = browser.new_page()
+        page.on("console", lambda msg: logger.info(f"[browser] {msg.text}"))
         login_moodle(page, moodle_url, usuario, contrasena)
+        print("SCRAPER: Login realizado")
+        logger.info(" Login realizado")
         curso = {"url": curso_url}
         tareas = get_tareas_de_curso(browser, page, moodle_url, None, curso, hidden_ids)
         # incluir tipo y detalles avanzados en cada tarea
