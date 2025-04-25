@@ -126,6 +126,22 @@ function TareasDeCurso() {
             {openMenuId === tarea.id && (
               <div style={{position: 'absolute', top: 28, right: 8, background: '#fff', border: '1px solid #ccc', borderRadius: 4, boxShadow: '0 2px 6px rgba(0,0,0,0.1)', zIndex: 10}}>
                 <div onClick={async () => {
+                  // Iniciar sincronización en segundo plano
+                  await fetch(`/api/tareas/${tarea.id}/sincronizar`, { method: 'POST' });
+                  setOpenMenuId(null);
+                  // Polling cada 5s para actualizar solo esta tarea
+                  const intervalId = setInterval(async () => {
+                    const res = await fetch(`/api/tareas/${tarea.id}`);
+                    if (!res.ok) return;
+                    const updated = await res.json();
+                    // Si ya viene descripción (sync completado), actualizamos el array de tareas
+                    if (updated.descripcion && updated.descripcion !== tarea.descripcion) {
+                      clearInterval(intervalId);
+                      setTareas(ts => ts.map(x => x.id === tarea.id ? updated : x));
+                    }
+                  }, 5000);
+                }} style={{padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap'}}>Sincronizar tarea</div>
+                <div onClick={async () => {
                   await fetch(`/api/tareas/${tarea.id}/ocultar`, { method: 'POST' });
                   const res = await fetch(`/api/cursos/${cursoId}/tareas`);
                   if (res.ok) setTareas(await res.json());
