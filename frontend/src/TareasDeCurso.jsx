@@ -82,7 +82,7 @@ function TareasDeCurso() {
       <h2>Tareas del Curso</h2>
       {syncStatus.estado !== 'no_iniciado' && (
         <div style={{ marginBottom: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
-          {syncStatus.estado === 'sincronizando' && <Spinner animation="border" size="sm" className="me-2" />}
+          {syncStatus.estado.startsWith('sincronizando') && <Spinner animation="border" size="sm" className="me-2" />}
           <span>Sincronización: {syncStatus.estado}</span>
           {syncStatus.fecha && <small>({new Date(syncStatus.fecha).toLocaleTimeString()})</small>}
         </div>

@@ -65,3 +65,7 @@ class SincronizacionDB(Base):
     cuenta_id = Column(Integer, ForeignKey("cuentas_moodle.id"), primary_key=True)
     estado = Column(String, nullable=False)
     fecha = Column(DateTime, default=datetime.utcnow, nullable=False)
+    fecha_inicio = Column(DateTime, nullable=True)
+    porcentaje = Column(Float, nullable=False, default=0.0)
+    tipo = Column(String, nullable=True)
+    duracion = Column(Float, nullable=True)

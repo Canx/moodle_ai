@@ -115,14 +115,12 @@ def get_entregas_pendientes(page, tarea_id):
 
 
 def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=None):
+    # Extraer sólo lista mínima de tareas (id, título, url)
     match = re.search(r"id=(\d+)", curso.get("url", ""))
     if not match:
         return []
     cid = int(match.group(1))
-    print(f"SCRAPER: Iniciando extracción de tareas para curso id={cid}")
-    logger.info(f" Iniciando extracción de tareas para curso id={cid}")
     page.goto(f"{moodle_url}/course/view.php?id={cid}", wait_until="networkidle")
-    # Extraer lista estática de tareas antes de navegar entre páginas
     tareas_info = []
     seen = set()
     for el in page.query_selector_all(".modtype_assign"):
@@ -136,80 +134,13 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
         if not m2:
             continue
         tid = int(m2.group(1))
+        if hidden_ids and tid in hidden_ids:
+            continue
         if tid in seen:
             continue
         seen.add(tid)
         tareas_info.append({"tarea_id": tid, "titulo": nm, "url": url})
-    print(f"SCRAPER: Encontradas {len(tareas_info)} tareas en curso {cid}")
-    logger.info(f" Encontradas {len(tareas_info)} tareas en curso {cid}")
-    # Procesar cada tarea individualmente
-    tareas = []
-    for info in tareas_info:
-        tid = info["tarea_id"]
-        nm = info["titulo"]
-        print(f"SCRAPER: Procesando tarea {tid}: {nm}")
-        logger.info(f" Procesando tarea {tid}: {nm}")
-        # Omitir tareas ocultas si se proporcionaron
-        if hidden_ids and tid in hidden_ids:
-            continue
-        url = info["url"]
-        # Obtener calificación máxima via query_selector
-        print(f"SCRAPER: Navegando a edición de tarea {tid}")
-        page.goto(f"{moodle_url}/course/modedit.php?update={tid}", wait_until="domcontentloaded", timeout=10000)
-        print("SCRAPER: Página de edición cargada")
-        input_el = page.query_selector("#id_grade_modgrade_point")
-        if input_el:
-            val = input_el.get_attribute("value")
-            calif_max = float(val) if val else None
-            print(f"SCRAPER: Calificación máxima: {calif_max}")
-        else:
-            print("SCRAPER: Input de calificación no encontrado")
-            calif_max = None
-        # Obtener tipo de calificación desde la página de configuración
-        tipo_calificacion = None
-        try:
-            sel = page.query_selector("select#id_advancedgradingmethod_submissions")
-            if sel:
-                opt = sel.query_selector("option[selected]")
-                tipo_calificacion = opt.get_attribute("value") if opt else sel.get_attribute("value")
-        except:
-            tipo_calificacion = None
-        # Obtener entregas pendientes
-        print(f"SCRAPER: Navegando a grading de tarea {tid}")
-        page.goto(f"{moodle_url}/mod/assign/view.php?id={tid}&action=grading", wait_until="domcontentloaded", timeout=15000)
-        print("SCRAPER: Página de grading cargada")
-        table = page.query_selector("table.generaltable")
-        if table:
-            print("SCRAPER: Tabla de entregas encontrada")
-            try:
-                page.wait_for_selector("select#id_filter", timeout=5000)
-                page.select_option("select#id_filter", "")
-                page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
-            except:
-                pass
-            detalles_calificacion = None
-            try:
-                form = page.query_selector("form#activemethodselector")
-                if form:
-                    detalles_calificacion = form.inner_html()
-            except:
-                pass
-            entregas = get_entregas_pendientes(page, tid)
-        else:
-            print("SCRAPER: Tabla de entregas no encontrada")
-            entregas = []
-            detalles_calificacion = None
-        tareas.append({
-            "cuenta_id": cuenta_id,
-            "tarea_id": tid,
-            "titulo": nm,
-            "url": url,
-            "calificacion_maxima": calif_max,
-            "entregas_pendientes": entregas,
-            "tipo_calificacion": tipo_calificacion,
-            "detalles_calificacion": detalles_calificacion
-        })
-    return tareas
+    return tareas_info
 
 
 def scrape_courses(moodle_url, usuario, contrasena):

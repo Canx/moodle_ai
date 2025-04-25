@@ -167,7 +167,11 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
 
     # Marcar como sincronizando
     cursor.execute(
-        "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
+        "INSERT INTO sincronizaciones (cuenta_id, estado, fecha, fecha_inicio, porcentaje, tipo, duracion) "
+        "VALUES (%s, %s, NOW(), NOW(), 0.0, 'cursos', NULL) "
+        "ON CONFLICT (cuenta_id) DO UPDATE SET "
+        "estado = EXCLUDED.estado, fecha = NOW(), fecha_inicio = EXCLUDED.fecha_inicio, "
+        "porcentaje = EXCLUDED.porcentaje, tipo = EXCLUDED.tipo, duracion = EXCLUDED.duracion",
         (cuenta_id, "sincronizando")
     )
     conn.commit()
@@ -180,7 +184,9 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
                 (cuenta_id, curso["nombre"], curso["url"])
             )
         cursor.execute(
-            "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
+            "INSERT INTO sincronizaciones (cuenta_id, estado, fecha, porcentaje, tipo, duracion) "
+            "VALUES (%s, %s, NOW(), 100.0, 'cursos', NULL) "
+            "ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW(), porcentaje = EXCLUDED.porcentaje",
             (cuenta_id, "ok")
         )
         conn.commit()
@@ -188,7 +194,9 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
     except Exception as e:
         conn.rollback()  # Clear aborted transaction
         cursor.execute(
-            "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
+            "INSERT INTO sincronizaciones (cuenta_id, estado, fecha, porcentaje, tipo, duracion) "
+            "VALUES (%s, %s, NOW(), 0.0, 'cursos', NULL) "
+            "ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW(), porcentaje = EXCLUDED.porcentaje",
             (cuenta_id, "error")
         )
         conn.commit()
