@@ -11,13 +11,20 @@ logger = logging.getLogger(__name__)
 
 def login_moodle(page, moodle_url, usuario, contrasena):
     login_url = f"{moodle_url}/login/index.php"
+    logger.info(f"LOGIN SYNC: navegando a {login_url}")
     page.goto(login_url, wait_until="networkidle")
+    logger.info("LOGIN SYNC: esperando selector 'form#login'")
     # esperar form y token
-    page.wait_for_selector("form#login", timeout=5000)
-    page.wait_for_selector("input[name='logintoken']", state="attached", timeout=5000)
+    page.wait_for_selector("form#login", timeout=15000)
+    logger.info("LOGIN SYNC: 'form#login' visible")
+    page.wait_for_selector("input[name='logintoken']", state="attached", timeout=15000)
+    logger.info("LOGIN SYNC: 'logintoken' attached")
     page.fill("input[name='username']", usuario)
+    logger.info("LOGIN SYNC: username llenado")
     page.fill("input[name='password']", contrasena)
+    logger.info("LOGIN SYNC: password llenado")
     page.click("button#loginbtn")
+    logger.info("LOGIN SYNC: clic en loginbtn")
     try:
         page.wait_for_load_state("networkidle", timeout=10000)
     except:
@@ -182,32 +189,62 @@ def scrape_tasks(moodle_url, usuario, contrasena, curso_url, hidden_ids=None):
         return tareas
 
 
-# Wrapper sincronizado que llama a la versión async única creando un bucle propio
 def scrape_task_details(moodle_url, usuario, contrasena, tarea_id):
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(
-            scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id)
-        )
-    finally:
-        loop.close()
+    from playwright.sync_api import sync_playwright
+    logger.info(f"SYNC SCRAPE: iniciando scraping detallado para tarea {tarea_id}")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        page = browser.new_page()
+        page.on("console", lambda msg: logger.info(f"[browser] {msg.text}"))
+        # Login sincrónico
+        login_moodle(page, moodle_url, usuario, contrasena)
+        # Descripción de la tarea
+        page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}", wait_until="domcontentloaded")
+        try:
+            page.wait_for_selector("div.activity-description#intro", timeout=15000)
+            desc = page.inner_html("div.activity-description#intro")
+        except:
+            desc = None
+        # Entregas pendientes
+        page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", wait_until="networkidle")
+        try:
+            page.wait_for_selector("select#id_filter", timeout=10000)
+            page.select_option("select#id_filter", "")
+            page.wait_for_selector("table.generaltable tbody tr", timeout=15000)
+        except:
+            pass
+        entregas = get_entregas_pendientes(page, tarea_id)
+        browser.close()
+    return {
+        "descripcion": desc,
+        "entregas_pendientes": entregas,
+        "tipo_calificacion": None,
+        "detalles_calificacion": None
+    }
 
 
-# Async Playwright implementation to avoid sync API in event loop
 async def login_moodle_async(page, moodle_url, usuario, contrasena):
     login_url = f"{moodle_url}/login/index.php"
+    logger.info(f"LOGIN ASYNC: navegando a {login_url}")
     await page.goto(login_url, wait_until="networkidle")
-    await page.wait_for_selector("form#login", timeout=5000)
-    await page.wait_for_selector("input[name='logintoken']", state="attached", timeout=5000)
+    logger.info("LOGIN ASYNC: esperando selector 'form#login'")
+    await page.wait_for_selector("form#login", timeout=15000)
+    logger.info("LOGIN ASYNC: 'form#login' visible")
+    logger.info("LOGIN ASYNC: esperando selector 'input[name=logintoken]'")
+    await page.wait_for_selector("input[name='logintoken']", state="attached", timeout=15000)
+    logger.info("LOGIN ASYNC: 'logintoken' attached")
     await page.fill("input[name='username']", usuario)
+    logger.info("LOGIN ASYNC: username llenado")
     await page.fill("input[name='password']", contrasena)
+    logger.info("LOGIN ASYNC: password llenado")
     await page.click("button#loginbtn")
+    logger.info("LOGIN ASYNC: clic en loginbtn")
     try:
         await page.wait_for_load_state("networkidle", timeout=10000)
     except:
         pass
     # Comprobar rápidamente si hay mensaje de error de login sin esperar
-    error_el = page.query_selector("#loginerrormessage")
+    error_el = await page.query_selector("#loginerrormessage")
     if error_el:
         mensaje = await error_el.inner_text()
         raise Exception(f"Login fallido: {mensaje}")

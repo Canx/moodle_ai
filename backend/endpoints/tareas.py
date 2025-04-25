@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from models import Tarea
 from models_db import TareaDB, CuentaMoodleDB, EntregaDB
 from database import get_db
-from services.scraper_service import scrape_task_details_async
+from tasks import run_sync_tarea_task
 import re
 import time
 from datetime import datetime, timedelta
@@ -52,92 +52,11 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
         raise HTTPException(status_code=404, detail="Tarea no encontrada tras sincronizar el curso indicado")
     raise HTTPException(status_code=404, detail="Tarea no encontrada y no se puede sincronizar porque no se conoce el curso")
 
-@router.post("/api/tareas/{tarea_id}/sincronizar")
-async def sincronizar_tarea(tarea_id: int, db: Session = Depends(get_db)):
-    tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
-    if not tarea:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
-    # 2. Obtener credenciales de la cuenta Moodle asociada
-    cuenta = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == tarea.cuenta_id).first()
-    if not cuenta:
-        raise HTTPException(status_code=404, detail="Cuenta Moodle asociada no encontrada")
-    # Marcar tarea como sincronizando
-    db.query(TareaDB).filter(TareaDB.id == tarea_id).update({"estado": "sincronizando"})
-    db.commit()
-    moodle_url = cuenta.moodle_url
-    usuario_moodle = cuenta.usuario_moodle
-    contrasena_moodle = cuenta.contrasena_moodle
-    # 3. Hacer scraping bajo demanda con login
-    try:
-        # Ejecutar scraping asíncrono usando Async Playwright API
-        tarea_data = await scrape_task_details_async(
-            moodle_url, usuario_moodle, contrasena_moodle, tarea.tarea_id
-        )
-        descripcion_html = tarea_data['descripcion']
-        entregas = tarea_data['entregas_pendientes']
-
-        # Persistir entregas en la base de datos
-        for e in entregas:
-            # tomar el primer archivo si existe
-            archivos = e.get('archivos', [])
-            file_url = archivos[0]['url'] if archivos else None
-            file_name = archivos[0]['nombre'] if archivos else None
-            entrega_db = db.query(EntregaDB).filter(
-                EntregaDB.tarea_id == tarea_id,
-                EntregaDB.alumno_id == e['alumno_id']
-            ).first()
-            if not entrega_db:
-                entrega_db = EntregaDB(tarea_id=tarea_id, alumno_id=e['alumno_id'])
-            entrega_db.fecha_entrega = e.get('fecha_entrega')
-            entrega_db.estado = e.get('estado')
-            entrega_db.nombre = e.get('nombre')
-            entrega_db.file_url = file_url
-            entrega_db.file_name = file_name
-            # Persistir texto en línea si existe
-            entrega_db.contenido = e.get('texto')
-            # Persistir nota quickgrade si existe
-            nota_text = e.get('nota')
-            # Siempre actualizar la nota: None si no hay valor
-            if nota_text:
-                try:
-                    entrega_db.nota = float(nota_text.replace(',', '.'))
-                except:
-                    entrega_db.nota = None
-            else:
-                entrega_db.nota = None
-            db.add(entrega_db)
-        db.commit()
-
-        # Calcular el estado de la tarea según las entregas
-        if not entregas:
-            estado = 'sin_entregas'
-        elif any(e.get('estado', '').lower().startswith('enviado') or e.get('estado', '').lower().startswith('pendiente') for e in entregas):
-            estado = 'pendiente_calificar'
-        else:
-            estado = 'evaluada'
-        now_str = datetime.now().isoformat()
-        # Actualizar descripción, fecha y estado final
-        db.query(TareaDB).filter(TareaDB.id == tarea_id).update({
-            "descripcion": descripcion_html,
-            "fecha_sincronizacion": now_str,
-            "estado": estado,
-            "tipo_calificacion": tarea_data.get("tipo_calificacion"),
-            "detalles_calificacion": tarea_data.get("detalles_calificacion")
-        })
-        db.commit()
-        # Eliminar entregas no encontradas en el scraping (usuarios ya no matriculados)
-        scraped_ids = [e['alumno_id'] for e in entregas]
-        db.query(EntregaDB) \
-            .filter(EntregaDB.tarea_id == tarea_id, ~EntregaDB.alumno_id.in_(scraped_ids)) \
-            .delete(synchronize_session=False)
-        db.commit()
-        return {"descripcion": descripcion_html, "estado": estado}
-    except Exception as e:
-        # Rollback para limpiar la transacción abortada y permitir actualizar estado
-        db.rollback()
-        db.query(TareaDB).filter(TareaDB.id == tarea_id).update({"estado": "error"})
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Error al obtener descripción: {e}")
+@router.post("/api/tareas/{tarea_id}/sincronizar", status_code=202)
+def sincronizar_tarea(tarea_id: int):
+    """Encola sincronización de una tarea en segundo plano vía Celery"""
+    run_sync_tarea_task.delay(tarea_id)
+    return {"mensaje": "Sincronización de tarea en segundo plano iniciada"}
 
 @router.get("/api/tareas/{tarea_id}/entregas_pendientes")
 def obtener_entregas_pendientes_tarea(tarea_id: int, db: Session = Depends(get_db)):
