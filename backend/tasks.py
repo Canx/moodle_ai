@@ -46,6 +46,7 @@ def run_sync_tarea_task(tarea_db_id):
         log.info(f"Worker: obtenidas {len(entregas)} entregas para tarea {tarea_db_id}")
         tipo_calif = details.get('tipo_calificacion')
         detalles_calif = details.get('detalles_calificacion')
+        calif_max = details.get('calificacion_maxima')
         # Persistir entregas
         log.info(f"Worker: iniciando persistencia de entregas para tarea {tarea_db_id}")
         for e in entregas:
@@ -68,18 +69,20 @@ def run_sync_tarea_task(tarea_db_id):
             db.add(entrega_db)
         db.commit()
         log.info(f"Worker: persistencia de entregas completada para tarea {tarea_db_id}")
-        # Estado final de la tarea
-        if not entregas:
+        # Estado final de la tarea (basado en entregas reales con archivos o texto)
+        reales = [e for e in entregas if e.get('archivos') or e.get('texto')]
+        if not reales:
             estado = 'sin_entregas'
-        elif any(e.get('estado','').lower().startswith(('enviado','pendiente')) for e in entregas):
+        elif any(e.get('estado','').lower().startswith(('enviado','pendiente')) for e in reales):
             estado = 'pendiente_calificar'
         else:
-            estado = 'evaluada'
+            estado = 'sin_pendientes'
         log.info(f"Worker: estado final calculado '{estado}' para tarea {tarea_db_id}")
         # Actualizar tarea
         db.query(TareaDB).filter(TareaDB.id == tarea_db_id).update({
             'descripcion': descripcion,
             'fecha_sincronizacion': datetime.now().isoformat(),
+            'calificacion_maxima': calif_max,
             'estado': estado,
             'tipo_calificacion': tipo_calif,
             'detalles_calificacion': detalles_calif

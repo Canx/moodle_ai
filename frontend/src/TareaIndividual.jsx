@@ -14,6 +14,8 @@ function TareaIndividual() {
   const [selectedTexto, setSelectedTexto] = useState("");
   const [syncStatus, setSyncStatus] = useState({estado:'no_iniciado', fecha: null});
   const [error, setError] = useState(null);
+  const [generalPrompt, setGeneralPrompt] = useState('');
+  const [subPrompt, setSubPrompt] = useState('');
   const navigate = useNavigate();
   const [guideOpen, setGuideOpen] = useState(false);
 
@@ -44,6 +46,26 @@ function TareaIndividual() {
     };
     fetchTarea();
   }, [tareaId]);
+
+  // Carga del prompt general
+  useEffect(() => {
+    fetch('/prompts/general_evaluate.md')
+      .then(res => res.text())
+      .then(setGeneralPrompt)
+      .catch(console.error);
+  }, []);
+
+  // Carga de sub-prompt según tipo de calificación
+  useEffect(() => {
+    if (!tarea) return;
+    let file = '/prompts/sub_simple.md';
+    if (tarea.tipo_calificacion === 'guia') file = '/prompts/sub_guide.md';
+    else if (tarea.tipo_calificacion === 'rubrica') file = '/prompts/sub_rubric.md';
+    fetch(file)
+      .then(res => res.text())
+      .then(setSubPrompt)
+      .catch(console.error);
+  }, [tarea]);
 
   // Iniciar sincronización en background y mostrar estado
   const sincronizarTarea = () => {
@@ -108,7 +130,19 @@ function TareaIndividual() {
       <div style={{display:'flex', gap:'16px', width:'100%', justifyContent:'flex-start', marginBottom:'18px'}}>
         <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas`} style={{color: '#1976d2', textDecoration: 'none', fontWeight: 500, padding: '10px 20px', borderRadius: 5, background: '#e3eefd', border: 'none'}}>&larr; Volver a tareas</Link>
       </div>
-      <h2 style={{fontSize: '2rem', color: '#1976d2', marginBottom: 18, textAlign: 'center'}}>{tarea.titulo}</h2>
+      <h2 style={{fontSize: '2rem', color: '#1976d2', marginBottom: 18, textAlign: 'center'}}>
+        <a
+          href={tarea.link_tarea}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#1976d2', textDecoration: 'none' }}
+        >
+          {tarea.titulo}
+        </a>
+      </h2>
+      <p style={{textAlign: 'center', marginBottom: '6px', fontSize: '1rem'}}>
+        Calificación máxima: <strong>{tarea.calificacion_maxima ?? '-'}</strong>
+      </p>
       <p style={{textAlign: 'center', marginBottom: '18px', fontSize: '1rem'}}>
         Tipo de evaluación: <strong>{tarea.tipo_calificacion || 'none'}</strong>
       </p>
@@ -206,19 +240,27 @@ function TareaIndividual() {
                       <button onClick={() => {
                         const fileName = entrega.archivos[0]?.nombre || 'archivo sin nombre';
                         const hasFile = entrega.archivos && entrega.archivos.length > 0;
-                        const promptText = `Por favor evalúa la entrega para la tarea "${tarea.titulo}".
-Descripción de la tarea:
-${desc || ''}
-
-Archivo: ${fileName}
-
-Utiliza la rúbrica de la descripción de la tarea (si existe) pero no generes tablas ni emoticonos en la respuesta.
-
-Proporciona:
-- Una nota numérica (0-${tarea.calificacion_maxima})
-- Feedback detallado.${hasFile ? '\n\nSe adjunta el fichero a evaluar.' : ''}`;
-                        // Copiar prompt
-                        navigator.clipboard.writeText(promptText);
+                        const textoContent = entrega.texto || '';
+                        // Secciones dinámicas de entrega
+                        const fileSection = hasFile ? `Archivo: ${fileName}\n\n` : '';
+                        const textoSection = textoContent ? `Texto: ${textoContent}\n\n` : '';
+                        // Convertir descripción HTML a texto plano
+                        const parser = new DOMParser();
+                        const plainDesc = desc ? parser.parseFromString(desc, 'text/html').body.textContent.trim() : '';
+                        // Generar prompt combinando templates
+                        let prompt = generalPrompt
+                          .replace('{tarea_titulo}', tarea.titulo)
+                          .replace('{descripcion}', plainDesc)
+                          .replace('{file_section}', fileSection)
+                          .replace('{texto_section}', textoSection);
+                        if (subPrompt) {
+                          const sub = subPrompt
+                            .replace('{calificacion_maxima}', tarea.calificacion_maxima)
+                            .replace('{detalles_calificacion}', tarea.detalles_calificacion || '')
+                            .replace('{adjuntar_archivo}', hasFile ? '\n\nSe adjunta el fichero a evaluar.' : '');
+                          prompt = `${prompt}\n${sub}`;
+                        }
+                        navigator.clipboard.writeText(prompt);
                         // Abrir ChatGPT directamente y gestionar pop-up blocker
                         const chatWin = window.open('https://chat.openai.com/', '_blank');
                         if (!chatWin) {

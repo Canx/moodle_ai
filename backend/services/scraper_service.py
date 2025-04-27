@@ -25,15 +25,14 @@ def login_moodle(page, moodle_url, usuario, contrasena):
     logger.info("LOGIN SYNC: password llenado")
     page.click("button#loginbtn")
     logger.info("LOGIN SYNC: clic en loginbtn")
-    try:
-        page.wait_for_load_state("networkidle", timeout=10000)
-    except:
-        pass
-    # Comprobar rápidamente si hay mensaje de error de login sin esperar
+    # Esperar breve para completar redirección
+    page.wait_for_timeout(2000)
+    # Comprobar rápidamente si hay mensaje de error de login
     error_el = page.query_selector("#loginerrormessage")
     if error_el:
         mensaje = error_el.inner_text()
         raise Exception(f"Login fallido: {mensaje}")
+    logger.info("LOGIN SYNC: login exitoso")
 
 
 def get_cursos_moodle(page, moodle_url):
@@ -52,10 +51,19 @@ def get_cursos_moodle(page, moodle_url):
 
 def get_entregas_pendientes(page, tarea_id):
     entregas = []
-    header_cells = page.query_selector_all("table.generaltable thead th")
+    # Obtener encabezados de la tabla de entregas con manejo de error
+    try:
+        header_cells = page.query_selector_all("table.generaltable thead th")
+    except Exception as e:
+        logger.warning(f"SYNC SCRAPE: no se encontró tabla de encabezados: {e}")
+        header_cells = []
     archivo_col_idx = texto_col_idx = nota_col_idx = None
     for idx, th in enumerate(header_cells):
-        txt = th.inner_text().strip()
+        try:
+            txt = th.inner_text().strip()
+        except Exception as e:
+            logger.warning(f"SYNC SCRAPE: error leyendo encabezado idx {idx}: {e}")
+            continue
         if "Archivos enviados" in txt:
             archivo_col_idx = idx
         if "Texto en línea" in txt:
@@ -152,7 +160,7 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
 
 def scrape_courses(moodle_url, usuario, contrasena):
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, devtools=True, slow_mo=500, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page()
         login_moodle(page, moodle_url, usuario, contrasena)
         print("SCRAPER: Login realizado")
@@ -164,10 +172,7 @@ def scrape_courses(moodle_url, usuario, contrasena):
 
 def scrape_tasks(moodle_url, usuario, contrasena, curso_url, hidden_ids=None):
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
+        browser = p.chromium.launch(headless=True, devtools=True, slow_mo=500, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page()
         page.on("console", lambda msg: logger.info(f"[browser] {msg.text}"))
         login_moodle(page, moodle_url, usuario, contrasena)
@@ -190,37 +195,115 @@ def scrape_tasks(moodle_url, usuario, contrasena, curso_url, hidden_ids=None):
 
 
 def scrape_task_details(moodle_url, usuario, contrasena, tarea_id):
-    from playwright.sync_api import sync_playwright
-    logger.info(f"SYNC SCRAPE: iniciando scraping detallado para tarea {tarea_id}")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page()
         page.on("console", lambda msg: logger.info(f"[browser] {msg.text}"))
-        # Login sincrónico
+        
+        # Login
         login_moodle(page, moodle_url, usuario, contrasena)
-        # Descripción de la tarea
-        page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}", wait_until="domcontentloaded")
-        try:
-            page.wait_for_selector("div.activity-description#intro", timeout=15000)
-            desc = page.inner_html("div.activity-description#intro")
-        except:
-            desc = None
-        # Entregas pendientes
-        page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", wait_until="networkidle")
-        try:
-            page.wait_for_selector("select#id_filter", timeout=10000)
-            page.select_option("select#id_filter", "")
-            page.wait_for_selector("table.generaltable tbody tr", timeout=15000)
-        except:
-            pass
-        entregas = get_entregas_pendientes(page, tarea_id)
+        logger.info("SYNC SCRAPE: login realizado")
+        
+        # Descripción
+        desc = _get_task_description_sync(page, moodle_url, tarea_id)
+        
+        # Advanced grading
+        tipo_calificacion, detalles_calificacion = _get_advanced_grading_sync(page, moodle_url, tarea_id)
+        
+        # Calificacion maxima
+        calificacion_maxima = _get_max_grade_sync(page, moodle_url, tarea_id)
+        # Entregas
+        entregas = _get_pending_submissions_sync(page, moodle_url, tarea_id)
+
         browser.close()
-    return {
-        "descripcion": desc,
-        "entregas_pendientes": entregas,
-        "tipo_calificacion": None,
-        "detalles_calificacion": None
-    }
+        return {
+            "descripcion": desc,
+            "entregas_pendientes": entregas,
+            "tipo_calificacion": tipo_calificacion,
+            "detalles_calificacion": detalles_calificacion,
+            "calificacion_maxima": calificacion_maxima
+        }
+
+
+def _get_task_description_sync(page, moodle_url, tarea_id):
+    view_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}"
+    logger.info(f"SYNC SCRAPE: navegando a task page {view_url}")
+    try:
+        page.goto(view_url, wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_selector("div.activity-description#intro", timeout=10000)
+        desc = page.inner_html("div.activity-description#intro")
+        logger.info("SYNC SCRAPE: descripción extraída")
+        return desc
+    except Exception as e:
+        logger.warning(f"SYNC SCRAPE: no se encontró descripción: {e}")
+        return None
+
+
+def _get_advanced_grading_sync(page, moodle_url, tarea_id):
+    # Obtener contextid para advanced grading
+    edit_url = f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1"
+    logger.info(f"SYNC SCRAPE: obteniendo contextid desde {edit_url}")
+    page.goto(edit_url, wait_until="networkidle", timeout=15000)
+    try:
+        hidden = page.query_selector("input[name='context']")
+        contextid = hidden.get_attribute("value") if hidden else None
+    except:
+        link = page.query_selector("a[href*='/grade/grading/manage.php']")
+        href = link.get_attribute("href")
+        parsed = urlparse(href)
+        contextid = parse_qs(parsed.query).get('contextid',[None])[0]
+    # Navegar a la gestión de grading
+    mg_url = f"{moodle_url}/grade/grading/manage.php?contextid={contextid}&component=mod_assign&area=submissions"
+    logger.info(f"SYNC SCRAPE: navegando a advanced grading page {mg_url}")
+    try:
+        page.goto(mg_url, wait_until="networkidle", timeout=15000)
+        sel = page.wait_for_selector("select[name='setmethod']", timeout=10000)
+        tipo = sel.evaluate("el => el.value")
+        detalles = None
+        if page.query_selector(".definition-preview"):
+            detalles = page.inner_html(".definition-preview")
+        logger.info(f"SYNC SCRAPE: tipo_calificacion='{tipo}' extraído")
+        return tipo, detalles
+    except Exception as e:
+        logger.warning(f"SYNC SCRAPE: error advanced grading: {e}")
+        return None, None
+
+
+def _get_max_grade_sync(page, moodle_url, tarea_id):
+    url = f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1"
+    logger.info(f"SYNC SCRAPE: obteniendo calificacion_maxima desde {url}")
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        inp = page.query_selector("input#id_grade_modgrade_point")
+        if inp:
+            val = inp.get_attribute("value")
+            cg = float(val.replace(',', '.')) if val else None
+            logger.info(f"SYNC SCRAPE: calificacion_maxima={cg}")
+            return cg
+    except Exception as e:
+        logger.warning(f"SYNC SCRAPE: error max_grade: {e}")
+    return None
+
+
+def _get_pending_submissions_sync(page, moodle_url, tarea_id):
+    # Navegar y obtener entregas pendientes de la tarea
+    logger.info(f"SYNC SCRAPE: obteniendo entregas pendientes para tarea {tarea_id}")
+    grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading"
+    logger.info(f"SYNC SCRAPE: navegando a grading page {grading_url}")
+    try:
+        page.goto(grading_url, wait_until="networkidle", timeout=30000)
+    except Exception as e:
+        logger.warning(f"SYNC SCRAPE: error navegando a grading page: {e}")
+    try:
+        page.wait_for_selector("table.generaltable", timeout=10000)
+    except:
+        logger.warning("SYNC SCRAPE: tabla de entregas no encontrada")
+    try:
+        entregas = get_entregas_pendientes(page, tarea_id)
+        return entregas
+    except Exception as e:
+        logger.warning(f"SYNC SCRAPE: error obteniendo entregas pendientes: {e}")
+        return []
 
 
 async def login_moodle_async(page, moodle_url, usuario, contrasena):
@@ -368,7 +451,7 @@ async def _get_task_description_async(page, moodle_url, tarea_id):
 
 async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(headless=True, devtools=True, slow_mo=500, args=["--no-sandbox", "--disable-dev-shm-usage"])
         context = await browser.new_context()
         page = await context.new_page()
         await login_moodle_async(page, moodle_url, usuario, contrasena)

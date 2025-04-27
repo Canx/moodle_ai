@@ -17,6 +17,9 @@ router = APIRouter()
 def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depends(get_db)):
     tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
     if tarea:
+        # Construir enlace a la tarea en Moodle
+        cuenta = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == tarea.cuenta_id).first()
+        link_tarea = f"{cuenta.moodle_url}/mod/assign/view.php?id={tarea.tarea_id}" if cuenta else None
         return {
             "id": tarea.id,
             "cuenta_id": tarea.cuenta_id,
@@ -29,6 +32,7 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
             "fecha_sincronizacion": tarea.fecha_sincronizacion,
             "tipo_calificacion": tarea.tipo_calificacion,
             "detalles_calificacion": tarea.detalles_calificacion,
+            "link_tarea": link_tarea
         }
     # Si no existe, intentar sincronizar tareas del curso indicado (si se pasa curso_id)
     if curso_id is not None:
@@ -36,6 +40,8 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
         sincronizar_tareas_curso(curso_id)
         tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
         if tarea:
+            cuenta = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == tarea.cuenta_id).first()
+            link_tarea = f"{cuenta.moodle_url}/mod/assign/view.php?id={tarea.tarea_id}" if cuenta else None
             return {
                 "id": tarea.id,
                 "cuenta_id": tarea.cuenta_id,
@@ -48,6 +54,7 @@ def obtener_tarea(tarea_id: int, curso_id: int = Query(None), db: Session = Depe
                 "fecha_sincronizacion": tarea.fecha_sincronizacion,
                 "tipo_calificacion": tarea.tipo_calificacion,
                 "detalles_calificacion": tarea.detalles_calificacion,
+                "link_tarea": link_tarea
             }
         raise HTTPException(status_code=404, detail="Tarea no encontrada tras sincronizar el curso indicado")
     raise HTTPException(status_code=404, detail="Tarea no encontrada y no se puede sincronizar porque no se conoce el curso")
