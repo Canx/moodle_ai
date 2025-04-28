@@ -26,7 +26,7 @@ def login_moodle(page, moodle_url, usuario, contrasena):
     page.click("button#loginbtn")
     logger.info("LOGIN SYNC: clic en loginbtn")
     # Esperar breve para completar redirección
-    page.wait_for_timeout(2000)
+    page.wait_for_selector(".navbar-menu-aules", timeout=15000)
     # Comprobar rápidamente si hay mensaje de error de login
     error_el = page.query_selector("#loginerrormessage")
     if error_el:
@@ -212,6 +212,7 @@ def scrape_task_details(moodle_url, usuario, contrasena, tarea_id):
         
         # Calificacion maxima
         calificacion_maxima = _get_max_grade_sync(page, moodle_url, tarea_id)
+
         # Entregas
         entregas = _get_pending_submissions_sync(page, moodle_url, tarea_id)
 

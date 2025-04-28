@@ -58,9 +58,10 @@ function TareaIndividual() {
   // Carga de sub-prompt según tipo de calificación
   useEffect(() => {
     if (!tarea) return;
-    let file = '/prompts/sub_simple.md';
-    if (tarea.tipo_calificacion === 'guia') file = '/prompts/sub_guide.md';
-    else if (tarea.tipo_calificacion === 'rubrica') file = '/prompts/sub_rubric.md';
+    let file;
+    if (tarea.tipo_calificacion === 'guide') file = '/prompts/sub_guide.md';
+    else if (tarea.tipo_calificacion === 'rubric') file = '/prompts/sub_rubric.md';
+    else file = '/prompts/sub_simple.md';
     fetch(file)
       .then(res => res.text())
       .then(setSubPrompt)
@@ -249,6 +250,7 @@ function TareaIndividual() {
                         const plainDesc = desc ? parser.parseFromString(desc, 'text/html').body.textContent.trim() : '';
                         // Generar prompt combinando templates
                         let prompt = generalPrompt
+                          .replace('{nombre_alumno}', entrega.nombre || '')
                           .replace('{tarea_titulo}', tarea.titulo)
                           .replace('{descripcion}', plainDesc)
                           .replace('{file_section}', fileSection)
@@ -261,6 +263,12 @@ function TareaIndividual() {
                           prompt = `${prompt}\n${sub}`;
                         }
                         navigator.clipboard.writeText(prompt);
+                        alert(`Prompt copiado y LLM se abrirá en nueva pestaña a continuación.
+                          Pasos:
+                          1) Cambia a la pestaña de ChatGPT.
+                          2) Pega el prompt con Ctrl+V (Windows/Linux) o Cmd+V (macOS).
+                          3) Si hay archivo, adjúntalo.
+                          4) Tras evaluar, haz click en "Manual" y edita la calificación y el feedback.`);
                         // Abrir ChatGPT directamente y gestionar pop-up blocker
                         const chatWin = window.open('https://chat.openai.com/', '_blank');
                         if (!chatWin) {
@@ -268,12 +276,7 @@ function TareaIndividual() {
                           return;
                         }
                         chatWin.focus();
-                        alert(`Prompt copiado y ChatGPT abierto en nueva pestaña.
-Pasos:
-1) Cambia a la pestaña de ChatGPT.
-2) Pega el prompt con Ctrl+V (Windows/Linux) o Cmd+V (macOS).
-3) Si hay archivo, adjúntalo.
-4) Tras evaluar, haz click en "Manual" y edita la calificación y el feedback.`);
+                        
                       }} style={{background:'#1976d2', color:'#fff', padding:'4px 10px', border:'none', borderRadius:6, fontWeight:500, cursor:'pointer'}}>Auto</button>
                       {/* Enlace Manual */}
                       {entrega.link_calificar && (
