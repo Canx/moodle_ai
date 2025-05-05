@@ -28,12 +28,14 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - downloads_data:/app/downloads
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
   worker:
     build:
       context: ./backend
     volumes:
       - ./backend:/app
+      - downloads_data:/app/downloads
     depends_on:
       - db
       - redis
@@ -55,3 +57,4 @@ services:
 volumes:
   pgdata:
   frontend_node_modules:
+  downloads_data:

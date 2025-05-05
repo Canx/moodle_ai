@@ -274,15 +274,24 @@ def _get_max_grade_sync(page, moodle_url, tarea_id):
     url = f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1"
     logger.info(f"SYNC SCRAPE: obteniendo calificacion_maxima desde {url}")
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        inp = page.query_selector("input#id_grade_modgrade_point")
-        if inp:
-            val = inp.get_attribute("value")
-            cg = float(val.replace(',', '.')) if val else None
-            logger.info(f"SYNC SCRAPE: calificacion_maxima={cg}")
-            return cg
+        logger.info("SYNC SCRAPE: iniciando navegación a página de calificación")
+        page.goto(url, wait_until="commit", timeout=10000)  # Cambiado a "commit" para no esperar recursos
+        logger.info("SYNC SCRAPE: navegación completada, buscando campo de calificación")
+        
+        # Intentar encontrar el campo con timeout más corto
+        try:
+            inp = page.wait_for_selector("input#id_grade_modgrade_point", timeout=5000)
+            if inp:
+                val = inp.get_attribute("value")
+                cg = float(val.replace(',', '.')) if val else None
+                logger.info(f"SYNC SCRAPE: calificacion_maxima={cg}")
+                return cg
+        except Exception as e:
+            logger.warning(f"SYNC SCRAPE: no se encontró campo de calificación: {e}")
+            return None
+            
     except Exception as e:
-        logger.warning(f"SYNC SCRAPE: error max_grade: {e}")
+        logger.warning(f"SYNC SCRAPE: error max_grade en navegación: {e}")
     return None
 
 
@@ -452,10 +461,12 @@ async def _get_task_description_async(page, moodle_url, tarea_id):
 
 async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, devtools=True, slow_mo=500, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         context = await browser.new_context()
         page = await context.new_page()
+        
         await login_moodle_async(page, moodle_url, usuario, contrasena)
+        
         # Advanced grading: get contextid and scrape details
         contextid = await _get_contextid_async(page, moodle_url, tarea_id)
         config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
@@ -472,17 +483,26 @@ async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
             await page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
         except:
             pass
+            
         entregas = await get_entregas_pendientes_async(page, tarea_id)
+        
+        # Obtener calificación máxima si está disponible
+        max_grade = None
+        try:
+            await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1", wait_until="networkidle")
+            input_grade = await page.query_selector("input#id_grade_modgrade_point")
+            if input_grade:
+                value = await input_grade.get_attribute("value")
+                if value:
+                    max_grade = float(value.replace(',', '.'))
+        except Exception as e:
+            logger.warning(f"No se pudo obtener calificación máxima: {e}")
+
         await browser.close()
-        # DEBUG: mostrar tipo y fragmento de detalles de calificación avanzada (async)
-        print(f"DEBUG scrape_task_details_async: tarea_id={tarea_id}, tipo_calificacion={config_tipo!r}")
-        if detalles_calificacion:
-            print(f"DEBUG detalles_calificacion async[:200]: {detalles_calificacion[:200]!r}")
-        else:
-            print("DEBUG detalles_calificacion async: None")
         return {
             "descripcion": desc,
             "entregas_pendientes": entregas,
             "tipo_calificacion": config_tipo,
-            "detalles_calificacion": detalles_calificacion
+            "detalles_calificacion": detalles_calificacion,
+            "calificacion_maxima": max_grade
         }

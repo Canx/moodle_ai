@@ -1,0 +1,1 @@
+ALTER TABLE entregas ADD COLUMN local_file_path TEXT;

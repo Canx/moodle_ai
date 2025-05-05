@@ -6,8 +6,13 @@ from database import get_db, SessionLocal
 from services.scraper_service import login_moodle, get_tareas_de_curso, scrape_task_details
 from datetime import datetime
 import traceback
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 import logging
+import os
+import requests
+from pathlib import Path
+import asyncio
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -17,7 +22,27 @@ def obtener_cursos(db: Session = Depends(get_db)):
     cursos = db.query(CursoDB).all()
     return [{"id": c.id, "nombre": c.nombre} for c in cursos]
 
-def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str, contrasena: str, url_curso: str):
+async def download_submission_file(page, file_url, tarea_id, entrega_id, nombre_archivo):
+    # Crear estructura de directorios
+    download_dir = Path("downloads") / str(tarea_id) / str(entrega_id)
+    download_dir.mkdir(parents=True, exist_ok=True)
+    
+    local_path = download_dir / nombre_archivo
+    
+    try:
+        # Configurar el evento de descarga
+        async with page.expect_download() as download_info:
+            # Navegar al archivo usando la sesión autenticada
+            await page.goto(file_url)
+            download = await download_info.value
+            # Guardar el archivo descargado con el nombre original
+            await download.save_as(local_path)
+            return str(local_path)
+    except Exception as e:
+        logger.error(f"Error descargando archivo {file_url}: {e}")
+        return None
+
+async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str, contrasena: str, url_curso: str):
     db_task = SessionLocal()
     try:
         # Conservar tareas ocultas y preparar borrado de visibles
@@ -29,19 +54,55 @@ def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str
             db_task.commit()
         db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id, TareaDB.oculto == False).delete(synchronize_session=False)
         db_task.commit()
-        # Scraping excluyendo tareas ocultas y procesando progresivamente
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            page = browser.new_page()
-            page.on("console", lambda msg: logger.info(f"[browser] {msg.text}"))
-            logger.info(f"SCRAPER: iniciar sesión en {moodle_url} usuario {usuario}")
-            # Login y lista inicial de tareas
-            login_moodle(page, moodle_url, usuario, contrasena)
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            # Login
+            from services.scraper_service import login_moodle_async
+            await login_moodle_async(page, moodle_url, usuario, contrasena)
             logger.info("SCRAPER: login moodle OK")
-            curso_info = {"url": url_curso}
-            tareas_info = get_tareas_de_curso(browser, page, moodle_url, None, curso_info, hidden_remote_ids)
+
+            # Obtener la lista de tareas del curso
+            match = re.search(r"id=(\d+)", url_curso)
+            if not match:
+                raise Exception("URL del curso inválida")
+            
+            cid = int(match.group(1))
+            await page.goto(f"{moodle_url}/course/view.php?id={cid}", wait_until="networkidle")
+            
+            tareas_info = []
+            seen = set()
+            
+            elementos = await page.query_selector_all(".modtype_assign")
+            for el in elementos:
+                link_el = await el.query_selector("a.aalink")
+                name_el = await el.query_selector(".instancename")
+                if not (link_el and name_el):
+                    continue
+                    
+                url = await link_el.get_attribute("href")
+                nombre = await name_el.inner_text()
+                
+                m2 = re.search(r"id=(\d+)", url)
+                if not m2:
+                    continue
+                    
+                tid = int(m2.group(1))
+                if hidden_remote_ids and tid in hidden_remote_ids:
+                    continue
+                if tid in seen:
+                    continue
+                    
+                seen.add(tid)
+                tareas_info.append({"tarea_id": tid, "titulo": nombre.strip(), "url": url})
+            
             total = len(tareas_info)
-            logger.info(f"SCRAPER: tareas encontradas: {total}")
+            logger.info(f"SCRAPER: encontradas {total} tareas")
+
+            # Procesar cada tarea
             for idx, info in enumerate(tareas_info, start=1):
                 # Actualizar progreso
                 sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id == cuenta_id).first()
@@ -51,51 +112,57 @@ def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str
                     sin.porcentaje = (idx/total)*100
                     db_task.commit()
                     logger.info(f"SINCRONIZACION PROGRESO: tarea {idx}/{total}")
+
                 logger.info(f"SCRAPER: procesando tarea {idx}/{total} id {info.get('tarea_id')}")
-                if info.get('tarea_id') in hidden_remote_ids:
-                    continue
-                # Estado según entregas
-                entregas = info.get('entregas_pendientes', [])
+                
+                # Obtener detalles de la tarea
+                details = await scrape_task_details_async(moodle_url, usuario, contrasena, info['tarea_id'])
+                entregas = details.get('entregas_pendientes', [])
+                
+                # Determinar estado según entregas
                 if not entregas:
                     estado = 'sin_entregas'
                 elif any(e.get('estado','').lower().startswith('enviado') or e.get('estado','').lower().startswith('pendiente') for e in entregas):
                     estado = 'pendiente_calificar'
                 else:
                     estado = 'sin_pendientes'
-                # Detalles y descripción
-                logger.info(f"SCRAPER: obteniendo detalles tarea {info.get('tarea_id')}")
-                try:
-                    details = scrape_task_details(moodle_url, usuario, contrasena, info['tarea_id'])
-                except:
-                    details = {}
-                descripcion = details.get('descripcion')
-                tipo_calificacion = details.get('tipo_calificacion', info.get('tipo_calificacion'))
-                detalles_calificacion = details.get('detalles_calificacion', info.get('detalles_calificacion'))
-                # Crear registros en BD
+
+                # Crear la tarea en BD
                 nueva_tarea = TareaDB(
                     cuenta_id=cuenta_id,
                     curso_id=curso_id,
                     tarea_id=info['tarea_id'],
                     titulo=info['titulo'],
-                    descripcion=descripcion,
+                    descripcion=details.get('descripcion'),
                     estado=estado,
-                    calificacion_maxima=info.get('calificacion_maxima'),
-                    tipo_calificacion=tipo_calificacion,
-                    detalles_calificacion=detalles_calificacion
+                    calificacion_maxima=details.get('calificacion_maxima'),
+                    tipo_calificacion=details.get('tipo_calificacion'),
+                    detalles_calificacion=details.get('detalles_calificacion')
                 )
                 db_task.add(nueva_tarea)
                 db_task.commit()
                 db_task.refresh(nueva_tarea)
+
+                # Procesar entregas
                 for entrega in entregas:
                     archivos = entrega.get('archivos', [])
                     file_url = archivos[0]['url'] if archivos else None
                     file_name = archivos[0]['nombre'] if archivos else None
                     texto = entrega.get('texto')
                     nota_text = entrega.get('nota')
+                    
+                    local_path = None
+                    if file_url and file_name:
+                        try:
+                            local_path = await download_submission_file(page, file_url, nueva_tarea.id, entrega.get('alumno_id'), file_name)
+                        except Exception as e:
+                            logger.error(f"Error descargando archivo de entrega: {e}")
+                    
                     try:
                         nota = float(str(nota_text).replace(',', '.')) if nota_text else None
                     except:
                         nota = None
+
                     nueva_entrega = EntregaDB(
                         tarea_id=nueva_tarea.id,
                         alumno_id=entrega.get('alumno_id'),
@@ -105,33 +172,41 @@ def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str
                         file_name=file_name,
                         estado=entrega.get('estado'),
                         nombre=entrega.get('nombre'),
-                        nota=nota
+                        nota=nota,
+                        local_file_path=local_path
                     )
                     db_task.add(nueva_entrega)
+                
                 db_task.commit()
-            browser.close()
-            logger.info("SCRAPER: browser cerrado")
-        sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id==cuenta_id).first()
-        if sin:
-            sin.estado = 'completada'
-            sin.fecha = datetime.utcnow()
-            sin.porcentaje = 100.0
-            # Duración en segundos
-            sin.duracion = (datetime.utcnow() - sin.fecha_inicio).total_seconds()
-            db_task.commit()
-            logger.info("SINCRONIZACION COMPLETADA")
+
+            await browser.close()
+            
+            # Actualizar estado final
+            sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id==cuenta_id).first()
+            if sin:
+                sin.estado = 'completada'
+                sin.fecha = datetime.utcnow()
+                sin.porcentaje = 100.0
+                sin.duracion = (datetime.utcnow() - sin.fecha_inicio).total_seconds()
+                db_task.commit()
+                logger.info("SINCRONIZACION COMPLETADA")
+
     except Exception as e:
-        # Limpiar la sesión tras fallo para evitar transacción abortada
-        db_task.rollback()
-        # Log exception stack and message
+        logger.error(f"Error en sincronización: {e}")
         traceback.print_exc()
+        db_task.rollback()
         sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id==cuenta_id).first()
         if sin:
             sin.estado = f"error: {e}"
             sin.fecha = datetime.utcnow()
             db_task.commit()
+        raise
     finally:
         db_task.close()
+
+def run_sync_tareas(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str, contrasena: str, url_curso: str):
+    # Wrapper síncrono para ejecutar la versión asíncrona
+    asyncio.run(run_sync_tareas_async(cuenta_id, curso_id, moodle_url, usuario, contrasena, url_curso))
 
 @router.post("/api/cursos/{curso_id}/sincronizar_tareas")
 def sincronizar_tareas_curso(curso_id: int):
