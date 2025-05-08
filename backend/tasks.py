@@ -8,6 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from playwright.async_api import async_playwright
 import asyncio
+import backoff
+from contextlib import asynccontextmanager
+from typing import Optional
+from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 # Logger para la tarea de sincronización
 logger = get_task_logger(__name__)
@@ -134,8 +138,44 @@ def run_sync_tarea_task(tarea_db_id):
     finally:
         db.close()
 
-@celery_app.task(name='download_submission_file_task')
-def download_submission_file_task(file_url: str, tarea_id: int, entrega_id: str, nombre_archivo: str, moodle_url: str, usuario: str, contrasena: str):
+# Variable global para el browser por worker
+_browser: Optional[Browser] = None
+_context: Optional[BrowserContext] = None
+
+async def get_or_create_browser():
+    global _browser, _context
+    if not _browser:
+        p = await async_playwright().start()
+        _browser = await p.chromium.launch(headless=True)
+    if not _context:
+        _context = await _browser.new_context()
+    return _browser, _context
+
+@asynccontextmanager
+async def get_page_with_login(moodle_url: str, usuario: str, contrasena: str):
+    browser, context = await get_or_create_browser()
+    page = await context.new_page()
+    try:
+        # Reintento exponencial para el login
+        @backoff.on_exception(backoff.expo,
+                            Exception,
+                            max_tries=3,
+                            max_time=30)
+        async def do_login():
+            from services.scraper_service import login_moodle_async
+            await login_moodle_async(page, moodle_url, usuario, contrasena)
+        
+        await do_login()
+        yield page
+    except Exception as e:
+        await page.close()
+        raise e
+    else:
+        await page.close()
+
+@celery_app.task(name='download_submission_file_task', bind=True, max_retries=3)
+def download_submission_file_task(self, file_url: str, tarea_id: int, entrega_id: str, nombre_archivo: str, moodle_url: str, usuario: str, contrasena: str):
+    """Task for downloading submission files with retries"""
     log = get_task_logger(__name__)
     log.info(f"Worker: iniciando descarga de archivo {nombre_archivo} para entrega {entrega_id}")
     
@@ -146,33 +186,28 @@ def download_submission_file_task(file_url: str, tarea_id: int, entrega_id: str,
         base_download_dir.mkdir(mode=0o755, exist_ok=True)
         
         # Crear estructura de directorios con permisos correctos
-        download_dir = base_download_dir / str(tarea_id) / str(entrega_id)
+        download_dir = base_download_dir / str(tarea_id) / str(entrega_id)  
         download_dir.mkdir(parents=True, mode=0o755, exist_ok=True)
         local_path = download_dir / nombre_archivo
 
         async def download_file():
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context()
-                page = await context.new_page()
-
-                # Login primero
-                from services.scraper_service import login_moodle_async
-                await login_moodle_async(page, moodle_url, usuario, contrasena)
-                
-                # Descargar archivo
-                async with page.expect_download() as download_info:
-                    await page.goto(file_url)
-                    download = await download_info.value
-                    await download.save_as(local_path)
-                
-                await browser.close()
+            async with get_page_with_login(moodle_url, usuario, contrasena) as page:
+                try:
+                    # Descargar archivo con timeout y retries
+                    async with page.expect_download(timeout=30000) as download_info:
+                        await page.goto(file_url, timeout=30000)
+                        download = await download_info.value
+                        await download.save_as(local_path)
+                except Exception as e:
+                    log.error(f"Error durante la descarga: {e}")
+                    raise
+                    
                 return str(local_path)
 
         # Ejecutar la descarga asíncrona
         local_file_path = asyncio.run(download_file())
         
-        # Asegurar que el archivo descargado tiene los permisos correctos
+        # Asegurar que el archivo descargado tiene los permisos correctos  
         local_path.chmod(0o644)
         
         # Actualizar la ruta en la base de datos
@@ -188,6 +223,25 @@ def download_submission_file_task(file_url: str, tarea_id: int, entrega_id: str,
     except Exception as e:
         log.error(f"Worker: error descargando archivo {nombre_archivo} para entrega {entrega_id}: {e}")
         db.rollback()
-        raise
+        # Reintento con backoff exponencial
+        retry_in = (2 ** self.request.retries) * 60  # 1min, 2min, 4min
+        raise self.retry(exc=e, countdown=retry_in)
     finally:
         db.close()
+
+# Función de limpieza para cerrar el navegador al terminar el worker
+@celery_app.task(name='cleanup_browser')
+def cleanup_browser():
+    """Clean up browser resources when worker shuts down"""
+    global _browser, _context
+    
+    async def do_cleanup():
+        if _context:
+            await _context.close()
+            _context = None
+        if _browser:
+            await _browser.close()
+            _browser = None
+            
+    if _browser or _context:
+        asyncio.run(do_cleanup())

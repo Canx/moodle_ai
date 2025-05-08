@@ -301,16 +301,33 @@ def _get_pending_submissions_sync(page, moodle_url, tarea_id):
     grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading"
     logger.info(f"SYNC SCRAPE: navegando a grading page {grading_url}")
     try:
-        page.goto(grading_url, wait_until="networkidle", timeout=30000)
-    except Exception as e:
-        logger.warning(f"SYNC SCRAPE: error navegando a grading page: {e}")
-    try:
+        # Usar domcontentloaded en lugar de networkidle para evitar esperas indefinidas
+        page.goto(grading_url, wait_until="domcontentloaded", timeout=15000)
+        logger.info("SYNC SCRAPE: navegación básica completada")
+        
+        # Esperar la tabla con timeout reducido
         page.wait_for_selector("table.generaltable", timeout=10000)
-    except:
-        logger.warning("SYNC SCRAPE: tabla de entregas no encontrada")
-    try:
+        logger.info("SYNC SCRAPE: tabla encontrada")
+        
+        # Intentar resetear el filtro si existe
+        try:
+            filter_sel = page.wait_for_selector("select#id_filter", timeout=5000)
+            if filter_sel:
+                page.select_option("select#id_filter", "")
+                logger.info("SYNC SCRAPE: filtro reseteado")
+                # Breve espera para que se actualice la tabla
+                page.wait_for_timeout(2000)
+        except Exception as e:
+            logger.info(f"SYNC SCRAPE: no se encontró filtro o no se pudo resetear: {e}")
+        
+        # Esperar al menos una fila en la tabla
+        page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
+        logger.info("SYNC SCRAPE: al menos una fila encontrada")
+        
         entregas = get_entregas_pendientes(page, tarea_id)
+        logger.info(f"SYNC SCRAPE: {len(entregas)} entregas extraídas")
         return entregas
+        
     except Exception as e:
         logger.warning(f"SYNC SCRAPE: error obteniendo entregas pendientes: {e}")
         return []
