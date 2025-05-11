@@ -1,72 +1,101 @@
-# Moodle AI Tasks
+# 🎓 Moodle AI Tasks
 
-Este proyecto es un MVP de un servicio web que permite a profesores conectar su cuenta de Moodle, obtener sus cursos y comenzar el proceso de corrección automática de tareas con ayuda de un modelo LLM como ChatGPT.
+Sistema de asistencia para la evaluación de tareas de Moodle mediante Inteligencia Artificial. Permite a los profesores conectar su cuenta de Moodle, obtener sus cursos y tareas, y utilizar modelos de lenguaje (LLM) como ChatGPT, Claude o Google Gemini para ayudar en el proceso de evaluación.
 
----
+## ✨ Características
 
-## 🚀 Cómo iniciar el proyecto
+- 🔄 Sincronización automática de cursos y tareas desde Moodle
+- 📝 Descarga y gestión de entregas de los alumnos
+- 🤖 Integración con múltiples LLMs (ChatGPT, Claude, Gemini, etc.)
+- 🎯 Sistema de prompts optimizados para evaluación
+- 📊 Seguimiento del estado de evaluaciones
+- 🔐 Sistema de usuarios y autenticación
+- 🎨 Interfaz moderna y responsive
 
-### 1. Clona el repositorio
+## 🚀 Instalación y Ejecución
+
+### Prerrequisitos
+
+- Docker
+- Docker Compose
+
+### 1. Clonar el repositorio
 
 ```bash
 git clone https://github.com/Canx/moodle-ai.git
 cd moodle-ai
 ```
 
-### 2. Crea un entorno virtual para el backend
+### 2. Configurar el entorno
+
+El proyecto usa Docker Compose para gestionar todos los servicios necesarios:
+
+- PostgreSQL para la base de datos
+- Redis para la cola de tareas
+- Backend FastAPI (Python)
+- Worker Celery para tareas asíncronas
+- Frontend Vite/React
+
+### 3. Iniciar los servicios
 
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
+# Construir e iniciar todos los servicios
+docker compose up --build
+
+# O en segundo plano
+docker compose up -d --build
 ```
 
-### 3. Instala las dependencias
+La aplicación estará disponible en:
+- Frontend: http://localhost:5173
+- API Backend: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+### 4. Gestión de los servicios
 
 ```bash
-pip install -r requirements.txt
+# Ver logs de todos los servicios
+docker compose logs -f
+
+# Ver logs de un servicio específico
+docker compose logs -f backend
+
+# Detener los servicios
+docker compose down
+
+# Reiniciar un servicio específico
+docker compose restart backend
 ```
 
-### 4. Ejecuta el backend
+## 🛠️ Desarrollo
+
+Para desarrollo local, puedes usar el modo de recarga automática:
 
 ```bash
-uvicorn main:app --reload
+# Backend con recarga automática
+docker compose up backend
+
+# Frontend con HMR
+docker compose up frontend
 ```
 
-### 5. Ejecuta el frontend
+## 📝 Estructura del proyecto
 
-1. Ve al directorio del frontend:
-```bash
-cd frontend
+```
+moodle_ai/
+├── backend/           # API y lógica de negocio
+│   ├── endpoints/     # Endpoints de la API
+│   ├── services/      # Servicios (scraper, etc.)
+│   └── migrations/    # Migraciones de BD
+├── frontend/         # Interfaz de usuario (React)
+│   └── src/          # Componentes y lógica
+└── docker-compose.yml
 ```
 
-2. Instala las dependencias
-```bash
-npm install
-```
+## 📚 Stack Tecnológico
 
-3. Inicia el servidor de desarrollo
-```bash
-npm run dev
-```
-
-## 🐳 Iniciar con Docker
-
-Asegúrate de tener Docker y Docker Compose instalados.
-
-```bash
-docker-compose up --build
-```
-
-Esto levantará los servicios (db, backend y frontend). Una vez iniciados, el frontend estará disponible en http://localhost:5173 y el backend en http://localhost:8000.
-
-Para levantar en segundo plano:
-
-```bash
-docker-compose up -d --build
-```
-
-Para detener y eliminar los contenedores:
-
-```bash
-docker-compose down
+- **Backend**: FastAPI, SQLAlchemy, Celery
+- **Frontend**: React, Vite
+- **Base de datos**: PostgreSQL
+- **Cola de tareas**: Redis
+- **Contenedores**: Docker
