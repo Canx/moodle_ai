@@ -81,10 +81,45 @@ function TareasDeCurso() {
       </div>
       <h2>Tareas del Curso</h2>
       {syncStatus.estado !== 'no_iniciado' && (
-        <div style={{ marginBottom: '12px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
-          {syncStatus.estado.startsWith('sincronizando') && <Spinner animation="border" size="sm" className="me-2" />}
-          <span>Sincronización: {syncStatus.estado}</span>
-          {syncStatus.fecha && <small>({new Date(syncStatus.fecha).toLocaleTimeString()})</small>}
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ 
+            marginBottom: '8px', 
+            fontWeight: 500, 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 8,
+            justifyContent: 'center' 
+          }}>
+            {syncStatus.estado.startsWith('sincronizando') && <Spinner animation="border" size="sm" className="me-2" />}
+            <span>{syncStatus.estado}</span>
+            {syncStatus.fecha && <small>({new Date(syncStatus.fecha).toLocaleTimeString()})</small>}
+          </div>
+          {syncStatus.estado.startsWith('sincronizando') && syncStatus.porcentaje && (
+            <div style={{ width: '100%', maxWidth: '600px', margin: '0 auto' }}>
+              <div style={{
+                width: '100%',
+                height: '6px',
+                backgroundColor: '#e0e0e0',
+                borderRadius: '3px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  width: `${syncStatus.porcentaje}%`,
+                  height: '100%',
+                  backgroundColor: '#1976d2',
+                  transition: 'width 0.3s ease-in-out'
+                }} />
+              </div>
+              <div style={{ 
+                textAlign: 'center',
+                marginTop: '4px',
+                fontSize: '0.9rem',
+                color: '#666'
+              }}>
+                {Math.round(syncStatus.porcentaje)}%
+              </div>
+            </div>
+          )}
         </div>
       )}
       {tareas.length > 0 && (
