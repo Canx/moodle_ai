@@ -5,8 +5,9 @@ import { Spinner } from "react-bootstrap";
 function TareasDeCurso() {
   const { cursoId, cuentaId, usuarioId } = useParams();
   const [tareas, setTareas] = useState([]);
+  const [curso, setCurso] = useState(null);
   const [syncStatus, setSyncStatus] = useState({ estado: 'no_iniciado', fecha: null });
-  const pendingCount = tareas.filter(t => t.estado === 'pendiente_calificar').length;
+  const pendingCount = tareas.reduce((sum, t) => sum + (t.pendientes || 0), 0);
 
   useEffect(() => {
     const fetchTareas = async () => {
@@ -22,23 +23,51 @@ function TareasDeCurso() {
   }, [cursoId, cuentaId]);
 
   useEffect(() => {
+    const fetchCurso = async () => {
+      const response = await fetch(`/api/cuentas/${cuentaId}/cursos`);
+      if (response.ok) {
+        const cursos = await response.json();
+        const cursoActual = cursos.find(c => c.id === parseInt(cursoId));
+        if (cursoActual) {
+          setCurso(cursoActual);
+        }
+      }
+    };
+    fetchCurso();
+  }, [cursoId, cuentaId]);
+
+  useEffect(() => {
     let interval;
     const fetchStatus = async () => {
       try {
+        // Obtener estado de sincronización
         const res = await fetch(`/api/cursos/${cursoId}/sincronizacion`);
         if (res.ok) {
           const data = await res.json();
           setSyncStatus(data);
-          if (data.estado === 'completada') {
+          
+          // Si está sincronizando o se completó, actualizar lista de tareas
+          if (data.estado.startsWith('sincronizando') || data.estado === 'completada') {
             const resp = await fetch(`/api/cursos/${cursoId}/tareas`);
-            if (resp.ok) setTareas(await resp.json());
+            if (resp.ok) {
+              const tareasActualizadas = await resp.json();
+              setTareas(tareasActualizadas);
+            }
+          }
+          
+          // Si se completó, detener el polling
+          if (data.estado === 'completada') {
             clearInterval(interval);
           }
         }
       } catch {};
     };
+    
+    // Ejecutar inmediatamente y configurar el intervalo
     fetchStatus();
-    interval = setInterval(fetchStatus, 5000);
+    interval = setInterval(fetchStatus, 3000); // Reducido a 3 segundos para mayor frecuencia de actualización
+    
+    // Limpiar el intervalo al desmontar
     return () => clearInterval(interval);
   }, [cursoId]);
 
@@ -79,7 +108,12 @@ function TareasDeCurso() {
           Volver a cursos
         </Link>
       </div>
-      <h2>Tareas del Curso</h2>
+      <h2 style={{color: '#1976d2', marginBottom: '8px'}}>
+        {curso?.nombre}
+      </h2>
+      <h3 style={{color: '#666', marginBottom: '24px', fontWeight: 500}}>
+        Tareas del curso
+      </h3>
       {syncStatus.estado !== 'no_iniciado' && (
         <div style={{ marginBottom: '24px' }}>
           <div style={{ 
@@ -88,11 +122,23 @@ function TareasDeCurso() {
             display: 'flex', 
             alignItems: 'center', 
             gap: 8,
-            justifyContent: 'center' 
+            justifyContent: 'center',
+            color: syncStatus.estado === 'completada' ? '#2e7d32' : '#1976d2'
           }}>
             {syncStatus.estado.startsWith('sincronizando') && <Spinner animation="border" size="sm" className="me-2" />}
-            <span>{syncStatus.estado}</span>
-            {syncStatus.fecha && <small>({new Date(syncStatus.fecha).toLocaleTimeString()})</small>}
+            <span>
+              {syncStatus.estado === 'completada' ? 'Última sincronización:' : syncStatus.estado}
+            </span>
+            {syncStatus.fecha && (
+              <span style={{ color: '#666' }}>
+                {new Date(syncStatus.fecha).toLocaleString('es-ES', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </span>
+            )}
           </div>
           {syncStatus.estado.startsWith('sincronizando') && syncStatus.porcentaje && (
             <div style={{ width: '100%', maxWidth: '600px', margin: '0 auto' }}>
@@ -122,66 +168,125 @@ function TareasDeCurso() {
           )}
         </div>
       )}
-      {tareas.length > 0 && (
-        <div style={{ marginBottom: '12px', fontWeight: 500 }}>
-          Tareas pendientes de calificar: {pendingCount}
+      {pendingCount > 0 && (
+        <div style={{ 
+          marginBottom: '12px', 
+          fontWeight: 500,
+          color: '#d32f2f'
+        }}>
+          Por calificar: {pendingCount}
         </div>
       )}
       <div style={{display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '20px'}}>
         {tareas.length === 0 && <div style={{background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px #0001', padding: '18px 24px', minWidth: 260, maxWidth: 340, flex: '1 0 260px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'}}>No hay tareas sincronizadas.</div>}
         {tareas.map((tarea) => (
           <div key={tarea.id || tarea.nombre} style={{
-            position: 'relative', 
-            background: tarea.pendientes > 0 ? '#fff8f8' : (tarea.entregadas > 0 ? '#f8fff8' : '#fff'),
-            borderRadius: '12px', 
-            boxShadow: '0 2px 8px #0001',
-            borderLeft: tarea.pendientes > 0 ? '4px solid #ef5350' : (tarea.entregadas > 0 ? '4px solid #66bb6a' : '4px solid #e0e0e0'),
-            padding: '18px 24px', 
-            minWidth: 260, 
-            maxWidth: 340, 
-            flex: '1 0 260px', 
-            display: 'flex', 
-            flexDirection: 'column', 
-            justifyContent: 'space-between'
+            position: 'relative',
+            background: tarea.pendientes > 0 ? '#fef6f6' : (tarea.entregadas > 0 ? '#f6fef6' : '#fff'),
+            borderRadius: '12px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            borderLeft: tarea.pendientes > 0 ? '4px solid #ef5350' : (tarea.entregadas > 0 ? '4px solid #4caf50' : '4px solid #e0e0e0'),
+            padding: '18px 24px',
+            minWidth: 260,
+            maxWidth: 340,
+            flex: '1 0 260px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            transition: 'all 0.2s ease'
           }}>
-            <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas/${tarea.id}/detalle`} style={{ color: '#1976d2', fontWeight: 'bold', fontSize: '1.1rem', textDecoration: 'none', marginBottom: 8 }}>
+            <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas/${tarea.id}/detalle`} 
+                  style={{ color: '#1976d2', fontWeight: '600', fontSize: '1.1rem', textDecoration: 'none', marginBottom: 12 }}>
               {tarea.titulo}
             </Link>
-            <div style={{ fontSize: '0.95rem', color: '#555', marginBottom: 4 }}>
-              Entregadas: {tarea.entregadas}
-            </div>
-            <div style={{ 
-              fontSize: '0.95rem', 
-              marginBottom: 8,
-              color: tarea.pendientes > 0 ? '#d32f2f' : (tarea.entregadas > 0 ? '#2e7d32' : '#555'),
-              fontWeight: tarea.pendientes > 0 ? 600 : 400
-            }}>
-              Por calificar: {tarea.pendientes}
-            </div>
-            {tarea.estado === 'sin_entregas' && (
-              <span style={{
-                display: 'inline-block',
-                padding: '4px 10px',
-                borderRadius: 12,
-                fontSize: '0.95em',
-                fontWeight: 500,
-                color: '#fff',
-                background: '#888',
-                alignSelf: 'flex-start'
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'flex-start', 
+                gap: '8px',
+                fontSize: '0.95rem',
+                color: '#666'
               }}>
-                Sin entregas
-              </span>
-            )}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  background: '#edf4fc',
+                  color: '#1976d2',
+                  fontWeight: '500'
+                }}>
+                  Entregadas: {tarea.entregadas}
+                </div>
+                <div style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  background: tarea.pendientes > 0 ? '#ffeaea' : '#edf7ed',
+                  color: tarea.pendientes > 0 ? '#d32f2f' : '#2e7d32',
+                  fontWeight: '500'
+                }}>
+                  Por calificar: {tarea.pendientes}
+                </div>
+              </div>
+
+              {tarea.estado === 'sin_entregas' && (
+                <div style={{
+                  display: 'inline-block',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '0.95em',
+                  fontWeight: '500',
+                  color: '#fff',
+                  background: '#9e9e9e',
+                  alignSelf: 'flex-start'
+                }}>
+                  Sin entregas
+                </div>
+              )}
+            </div>
+
             {/* Menú de acciones */}
-            <button onClick={() => setOpenMenuId(openMenuId === tarea.id ? null : tarea.id)} style={{position: 'absolute', top: 8, right: 8, background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer'}}>⋮</button>
+            <button onClick={() => setOpenMenuId(openMenuId === tarea.id ? null : tarea.id)} 
+                    style={{
+                      position: 'absolute', 
+                      top: 8, 
+                      right: 8, 
+                      background: 'transparent', 
+                      border: 'none', 
+                      fontSize: '1.2rem', 
+                      cursor: 'pointer',
+                      color: '#666',
+                      padding: '4px',
+                      borderRadius: '4px',
+                      transition: 'background-color 0.2s ease'
+                    }}
+                    onMouseOver={e => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                    onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+              ⋮
+            </button>
             {openMenuId === tarea.id && (
-              <div style={{position: 'absolute', top: 28, right: 8, background: '#fff', border: '1px solid #ccc', borderRadius: 4, boxShadow: '0 2px 6px rgba(0,0,0,0.1)', zIndex: 10}}>
+              <div style={{
+                position: 'absolute', 
+                top: 28, 
+                right: 8, 
+                background: '#fff', 
+                border: '1px solid #e0e0e0', 
+                borderRadius: 8, 
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)', 
+                zIndex: 10
+              }}>
                 <div onClick={async () => {
                   // Iniciar sincronización y cerrar menú
                   await fetch(`/api/tareas/${tarea.id}/sincronizar`, { method: 'POST' });
                   setOpenMenuId(null);
+                  
                   // Marcar estado de tarea como sincronizando en UI
                   setTareas(ts => ts.map(x => x.id === tarea.id ? {...x, estado: 'sincronizando'} : x));
+                  
                   // Polling 5s usando lista de tareas para refrescar counts y estado
                   const intervalId = setInterval(async () => {
                     const resList = await fetch(`/api/cursos/${cursoId}/tareas`);
@@ -193,13 +298,38 @@ function TareasDeCurso() {
                       setTareas(ts => ts.map(x => x.id === tarea.id ? updated : x));
                     }
                   }, 5000);
-                }} style={{padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap'}}>Sincronizar tarea</div>
+                }} 
+                style={{
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'background-color 0.2s ease',
+                  color: '#1976d2',
+                  fontSize: '0.95rem'
+                }}
+                onMouseOver={e => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                onMouseOut={e => e.currentTarget.style.backgroundColor = '#fff'}>
+                  Sincronizar tarea
+                </div>
                 <div onClick={async () => {
                   await fetch(`/api/tareas/${tarea.id}/ocultar`, { method: 'POST' });
                   const res = await fetch(`/api/cursos/${cursoId}/tareas`);
                   if (res.ok) setTareas(await res.json());
                   setOpenMenuId(null);
-                }} style={{padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap'}}>Ocultar</div>
+                }} 
+                style={{
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'background-color 0.2s ease',
+                  color: '#d32f2f',
+                  fontSize: '0.95rem',
+                  borderTop: '1px solid #e0e0e0'
+                }}
+                onMouseOver={e => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                onMouseOut={e => e.currentTarget.style.backgroundColor = '#fff'}>
+                  Ocultar
+                </div>
               </div>
             )}
           </div>
