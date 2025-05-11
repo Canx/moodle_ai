@@ -3,13 +3,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from models_db import CursoDB, CuentaMoodleDB, TareaDB, EntregaDB, SincronizacionDB
 from database import get_db, SessionLocal
-from services.scraper_service import login_moodle, get_tareas_de_curso, scrape_task_details
+from services.scraper_service import login_moodle, get_tareas_de_curso, scrape_task_details, login_moodle_async, scrape_task_details_async
 from datetime import datetime
 import traceback
 from playwright.async_api import async_playwright
 import logging
 import os
 import requests
+import re
 from pathlib import Path
 import asyncio
 
@@ -30,28 +31,101 @@ async def download_submission_file(page, file_url, tarea_id, entrega_id, nombre_
     local_path = download_dir / nombre_archivo
     
     try:
-        # Configurar el evento de descarga
-        async with page.expect_download() as download_info:
-            # Navegar al archivo usando la sesión autenticada
-            await page.goto(file_url)
-            download = await download_info.value
-            # Guardar el archivo descargado con el nombre original
-            await download.save_as(local_path)
-            return str(local_path)
+        # Timeout general para la descarga
+        timeout = 120000  # 2 minutos para todos los archivos
+        
+        # Crear un nuevo contexto de navegador usando el browser existente
+        browser = page.context.browser
+        context = await browser.new_context(
+            accept_downloads=True,
+            viewport={'width': 1920, 'height': 1080}
+        )
+        
+        try:
+            # Transferir cookies de la sesión principal al nuevo contexto
+            await context.add_cookies(await page.context.cookies())
+            
+            # Crear una nueva página en el contexto dedicado
+            download_page = await context.new_page()
+            try:
+                # Configurar comportamiento optimizado para descargas
+                await download_page.route("**/*", lambda route: route.continue_(
+                    headers={
+                        "Accept": "*/*",
+                        "Accept-Encoding": "identity",  # Evitar compresión que puede causar problemas
+                        "Connection": "keep-alive"
+                    }
+                ))
+                
+                # Preparar URL de descarga
+                download_url = file_url
+                if "forcedownload=1" not in download_url:
+                    download_url += ("&" if "?" in download_url else "?") + "forcedownload=1"
+                
+                logger.info(f"Iniciando descarga desde: {download_url}")
+
+                # Configurar y esperar la descarga con mejor manejo de errores
+                async with download_page.expect_download(timeout=timeout) as download_info:
+                    # Navegar directamente a la URL de descarga
+                    await download_page.goto("about:blank")  # Página en blanco primero
+                    await download_page.evaluate(f"window.location.href = '{download_url}'")
+                    
+                    # Esperar la descarga con validación adicional
+                    download = await download_info.value
+                    
+                    # Dar tiempo para que inicie la descarga
+                    await asyncio.sleep(2)
+                    
+                    # Guardar el archivo y validar resultado
+                    await download.save_as(local_path)
+                    
+                    # Verificación exhaustiva del archivo descargado
+                    if not local_path.exists():
+                        raise Exception("El archivo descargado no existe")
+                    
+                    file_size = local_path.stat().st_size
+                    if file_size == 0:
+                        raise Exception("El archivo descargado está vacío")
+                        
+                    logger.info(f"Descarga completada: {nombre_archivo} ({file_size} bytes)")
+                    return str(local_path)
+
+            except Exception as e:
+                logger.error(f"Error durante la descarga: {str(e)}")
+                if local_path.exists():
+                    local_path.unlink()
+                raise
+            finally:
+                await download_page.close()
+                
+        except Exception as e:
+            logger.error(f"Error durante el proceso de descarga: {str(e)}", exc_info=True)
+            raise
+        finally:
+            await context.close()
+            
     except Exception as e:
-        logger.error(f"Error descargando archivo {file_url}: {e}")
-        return None
+        logger.error(f"Error descargando archivo {file_url}: {str(e)}", exc_info=True)
+        if local_path.exists():
+            local_path.unlink()
+        raise
 
 async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str, contrasena: str, url_curso: str):
     db_task = SessionLocal()
     try:
-        # Conservar tareas ocultas y preparar borrado de visibles
+        # Obtener todas las tareas existentes del curso
         old_tareas = db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id).all()
-        hidden_remote_ids = {t.tarea_id for t in old_tareas if t.oculto}
         tarea_ids = [t.id for t in old_tareas if not t.oculto]
+        
+        # Crear un mapa de las tareas existentes por tarea_id para consulta rápida
+        existing_tareas = {t.tarea_id: t for t in old_tareas}
+        
+        # Borrar las entregas de tareas no ocultas
         if tarea_ids:
             db_task.query(EntregaDB).filter(EntregaDB.tarea_id.in_(tarea_ids)).delete(synchronize_session=False)
             db_task.commit()
+            
+        # Borrar las tareas no ocultas
         db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id, TareaDB.oculto == False).delete(synchronize_session=False)
         db_task.commit()
 
@@ -91,9 +165,12 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
                     continue
                     
                 tid = int(m2.group(1))
-                if hidden_remote_ids and tid in hidden_remote_ids:
-                    continue
                 if tid in seen:
+                    continue
+                
+                # Si la tarea existe y está oculta, saltar
+                existing_task = existing_tareas.get(tid)
+                if existing_task and existing_task.oculto:
                     continue
                     
                 seen.add(tid)
@@ -115,8 +192,8 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
 
                 logger.info(f"SCRAPER: procesando tarea {idx}/{total} id {info.get('tarea_id')}")
                 
-                # Obtener detalles de la tarea
-                details = await scrape_task_details_async(moodle_url, usuario, contrasena, info['tarea_id'])
+                # Obtener detalles de la tarea usando la sesión existente
+                details = await scrape_task_details_async(page, moodle_url, info['tarea_id'])
                 entregas = details.get('entregas_pendientes', [])
                 
                 # Determinar estado según entregas
@@ -127,21 +204,39 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
                 else:
                     estado = 'sin_pendientes'
 
-                # Crear la tarea en BD
-                nueva_tarea = TareaDB(
-                    cuenta_id=cuenta_id,
-                    curso_id=curso_id,
-                    tarea_id=info['tarea_id'],
-                    titulo=info['titulo'],
-                    descripcion=details.get('descripcion'),
-                    estado=estado,
-                    calificacion_maxima=details.get('calificacion_maxima'),
-                    tipo_calificacion=details.get('tipo_calificacion'),
-                    detalles_calificacion=details.get('detalles_calificacion')
-                )
-                db_task.add(nueva_tarea)
+                # Buscar si la tarea ya existe o crear una nueva
+                tarea = db_task.query(TareaDB).filter(
+                    TareaDB.curso_id == curso_id,
+                    TareaDB.tarea_id == info['tarea_id']
+                ).first()
+                
+                # Preparar datos de la tarea
+                tarea_data = {
+                    'cuenta_id': cuenta_id,
+                    'curso_id': curso_id,
+                    'tarea_id': info['tarea_id'],
+                    'titulo': info['titulo'],
+                    'descripcion': details.get('descripcion'),
+                    'estado': estado,
+                    'calificacion_maxima': details.get('calificacion_maxima'),
+                    'tipo_calificacion': details.get('tipo_calificacion'),
+                    'detalles_calificacion': details.get('detalles_calificacion')
+                }
+                
+                if tarea:
+                    # Si existe y está oculta, mantener ese estado
+                    if tarea.oculto:
+                        tarea_data['oculto'] = True
+                    # Actualizar la tarea existente
+                    for key, value in tarea_data.items():
+                        setattr(tarea, key, value)
+                else:
+                    # Crear nueva tarea
+                    tarea = TareaDB(**tarea_data)
+                    db_task.add(tarea)
+                
                 db_task.commit()
-                db_task.refresh(nueva_tarea)
+                db_task.refresh(tarea)
 
                 # Procesar entregas
                 for entrega in entregas:
@@ -153,10 +248,18 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
                     
                     local_path = None
                     if file_url and file_name:
-                        try:
-                            local_path = await download_submission_file(page, file_url, nueva_tarea.id, entrega.get('alumno_id'), file_name)
-                        except Exception as e:
-                            logger.error(f"Error descargando archivo de entrega: {e}")
+                        # Hacer varios intentos de descarga si falla
+                        max_intentos = 3
+                        for intento in range(max_intentos):
+                            try:
+                                logger.info(f"Intento {intento + 1} de {max_intentos} descargando {file_name}")
+                                # Usamos el ID de la tarea de nuestra BD, no el de Moodle
+                                local_path = await download_submission_file(page, file_url, tarea.id, entrega.get('alumno_id'), file_name)
+                                break  # Si la descarga fue exitosa, salir del bucle
+                            except Exception as e:
+                                logger.error(f"Error intento {intento + 1} descargando archivo de entrega: {e}")
+                                await asyncio.sleep(5 * (intento + 1))  # Esperar más tiempo entre intentos
+                                continue
                     
                     try:
                         nota = float(str(nota_text).replace(',', '.')) if nota_text else None
@@ -164,7 +267,7 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
                         nota = None
 
                     nueva_entrega = EntregaDB(
-                        tarea_id=nueva_tarea.id,
+                        tarea_id=tarea.id,
                         alumno_id=entrega.get('alumno_id'),
                         fecha_entrega=entrega.get('fecha_entrega'),
                         contenido=texto,
@@ -273,12 +376,19 @@ def obtener_tareas_curso(curso_id: int, db: Session = Depends(get_db)):
     # Incluir count de entregas pendientes por tarea
     result = []
     for t in tareas:
-        # contar solo entregas con archivo o contenido de texto
+        # contar solo entregas que realmente tienen contenido enviado
         entregadas = db.query(EntregaDB).filter(
             EntregaDB.tarea_id == t.id,
-            or_(EntregaDB.file_url != None, EntregaDB.contenido != None)
+            or_(EntregaDB.file_url != None, EntregaDB.contenido != None),
+            EntregaDB.estado.ilike('%enviado%')  # Solo contar las que están en estado "enviado"
         ).count()
-        pendientes = db.query(EntregaDB).filter(EntregaDB.tarea_id == t.id, EntregaDB.nota == None).count()
+        # contar solo entregas enviadas que no tienen nota
+        pendientes = db.query(EntregaDB).filter(
+            EntregaDB.tarea_id == t.id,
+            EntregaDB.nota == None,
+            or_(EntregaDB.file_url != None, EntregaDB.contenido != None),
+            EntregaDB.estado.ilike('%enviado%')  # Solo contar las que están en estado "enviado"
+        ).count()
         result.append({
             "id": t.id,
             "tarea_id": t.tarea_id,

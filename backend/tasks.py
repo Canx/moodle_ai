@@ -156,21 +156,32 @@ async def get_page_with_login(moodle_url: str, usuario: str, contrasena: str):
     browser, context = await get_or_create_browser()
     page = await context.new_page()
     try:
-        # Reintento exponencial para el login
-        @backoff.on_exception(backoff.expo,
-                            Exception,
-                            max_tries=3,
-                            max_time=30)
-        async def do_login():
+        # Primero intentar navegar a una página que requiere autenticación
+        try:
+            await page.goto(f"{moodle_url}/my", wait_until="domcontentloaded", timeout=10000)
+            # Si no vemos el formulario de login, asumimos que la sesión es válida
+            login_form = await page.query_selector("form#login")
+            if login_form:
+                # Necesitamos hacer login
+                @backoff.on_exception(backoff.expo,
+                                    Exception,
+                                    max_tries=3,
+                                    max_time=30)
+                async def do_login():
+                    from services.scraper_service import login_moodle_async
+                    await login_moodle_async(page, moodle_url, usuario, contrasena)
+                
+                await do_login()
+            else:
+                logger.info("Sesión existente válida, no es necesario hacer login")
+        except Exception as e:
+            # Si hay error al verificar la sesión, intentar login por si acaso
+            logger.warning(f"Error verificando sesión: {e}, intentando login")
             from services.scraper_service import login_moodle_async
             await login_moodle_async(page, moodle_url, usuario, contrasena)
         
-        await do_login()
         yield page
-    except Exception as e:
-        await page.close()
-        raise e
-    else:
+    finally:
         await page.close()
 
 @celery_app.task(name='download_submission_file_task', bind=True, max_retries=3)
@@ -193,38 +204,52 @@ def download_submission_file_task(self, file_url: str, tarea_id: int, entrega_id
         async def download_file():
             async with get_page_with_login(moodle_url, usuario, contrasena) as page:
                 try:
-                    # Descargar archivo con timeout y retries
-                    async with page.expect_download(timeout=30000) as download_info:
-                        await page.goto(file_url, timeout=30000)
-                        download = await download_info.value
-                        await download.save_as(local_path)
+                    # Configurar timeouts y comportamiento del navegador
+                    await page.set_viewport_size({"width": 1920, "height": 1080})
+                    await page.set_extra_http_headers({
+                        "Accept": "*/*",
+                        "Accept-Encoding": "gzip, deflate, br",
+                    })
+                    
+                    # Intentar descarga con manejo de errores
+                    local_file_path = await download_submission_file(page, file_url, tarea_id, entrega_id, nombre_archivo)
+                    
+                    if not local_file_path or not Path(local_file_path).exists():
+                        raise Exception("Descarga no completada correctamente")
+                    
+                    return local_file_path
+                        
                 except Exception as e:
                     log.error(f"Error durante la descarga: {e}")
                     raise
-                    
-                return str(local_path)
 
         # Ejecutar la descarga asíncrona
         local_file_path = asyncio.run(download_file())
         
         # Asegurar que el archivo descargado tiene los permisos correctos  
-        local_path.chmod(0o644)
-        
-        # Actualizar la ruta en la base de datos
-        db.query(EntregaDB).filter(
-            EntregaDB.tarea_id == tarea_id,
-            EntregaDB.alumno_id == entrega_id
-        ).update({"local_file_path": local_file_path})
-        
-        db.commit()
-        log.info(f"Worker: archivo descargado exitosamente: {local_file_path}")
-        return local_file_path
-        
+        if Path(local_file_path).exists():
+            Path(local_file_path).chmod(0o644)
+            
+            # Actualizar la ruta en la base de datos
+            db.query(EntregaDB).filter(
+                EntregaDB.tarea_id == tarea_id,
+                EntregaDB.alumno_id == entrega_id
+            ).update({"local_file_path": local_file_path})
+            
+            db.commit()
+            log.info(f"Worker: archivo descargado exitosamente: {local_file_path}")
+            return local_file_path
+        else:
+            raise Exception("Archivo no encontrado después de la descarga")
+            
     except Exception as e:
         log.error(f"Worker: error descargando archivo {nombre_archivo} para entrega {entrega_id}: {e}")
         db.rollback()
         # Reintento con backoff exponencial
         retry_in = (2 ** self.request.retries) * 60  # 1min, 2min, 4min
+        # Si es un error específico de tipo de archivo, esperar más tiempo
+        if '.xopp' in nombre_archivo.lower():
+            retry_in *= 2  # Doble tiempo de espera para archivos .xopp
         raise self.retry(exc=e, countdown=retry_in)
     finally:
         db.close()

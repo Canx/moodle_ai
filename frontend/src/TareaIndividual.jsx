@@ -18,6 +18,17 @@ function TareaIndividual() {
   const [subPrompt, setSubPrompt] = useState('');
   const navigate = useNavigate();
   const [guideOpen, setGuideOpen] = useState(false);
+  const [defaultLLM, setDefaultLLM] = useState(null);
+
+  // Cargar la configuración de LLM del usuario
+  useEffect(() => {
+    if (usuarioId) {
+      fetch(`/api/usuarios/${usuarioId}/llm_config`)
+        .then(res => res.json())
+        .then(data => setDefaultLLM(data))
+        .catch(console.error);
+    }
+  }, [usuarioId]);
 
   // Mostrar la descripción local al cargar la tarea si existe
   useEffect(() => {
@@ -263,21 +274,24 @@ function TareaIndividual() {
                           prompt = `${prompt}\n${sub}`;
                         }
                         navigator.clipboard.writeText(prompt);
-                        alert(`Prompt copiado y LLM se abrirá en nueva pestaña a continuación.
+                        alert(`Prompt copiado y ${defaultLLM?.nombre || 'el LLM'} se abrirá en nueva pestaña a continuación.
                           Pasos:
-                          1) Cambia a la pestaña de ChatGPT.
+                          1) Cambia a la pestaña de ${defaultLLM?.nombre || 'el LLM'}.
                           2) Pega el prompt con Ctrl+V (Windows/Linux) o Cmd+V (macOS).
                           3) Si hay archivo, adjúntalo.
                           4) Tras evaluar, haz click en "Manual" y edita la calificación y el feedback.`);
                         // Abrir ChatGPT directamente y gestionar pop-up blocker
-                        const chatWin = window.open('https://chat.openai.com/', '_blank');
+                        const url = defaultLLM?.url_template || 'https://chat.openai.com/';
+                        const chatWin = window.open(url, '_blank');
                         if (!chatWin) {
-                          alert('Se ha copiado el prompt. Por favor habilita pop-ups para abrir ChatGPT automáticamente.');
+                          alert('Se ha copiado el prompt. Por favor habilita pop-ups para abrir el LLM automáticamente.');
                           return;
                         }
                         chatWin.focus();
                         
-                      }} style={{background:'#1976d2', color:'#fff', padding:'4px 10px', border:'none', borderRadius:6, fontWeight:500, cursor:'pointer'}}>Auto</button>
+                      }} style={{background:'#1976d2', color:'#fff', padding:'4px 10px', border:'none', borderRadius:6, fontWeight:500, cursor:'pointer'}}>
+                        {defaultLLM ? defaultLLM.nombre.split(' ')[0] : 'Auto'}
+                      </button>
                       {/* Enlace Manual */}
                       {entrega.link_calificar && (
                         <a href={entrega.link_calificar} target="_blank" rel="noopener noreferrer" style={{marginLeft:8, background:'#1976d2', color:'#fff', padding:'4px 10px', borderRadius:6, textDecoration:'none', fontWeight:500}}>Manual</a>

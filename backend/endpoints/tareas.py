@@ -88,8 +88,16 @@ def obtener_entregas_pendientes_tarea(tarea_id: int, db: Session = Depends(get_d
                 "texto": row.contenido,
                 "archivos": [],
             }
-        if row.file_url and row.file_name:
-            entregas_dict[entrega_key]["archivos"].append({"url": row.file_url, "nombre": row.file_name})
+        if row.file_name:
+            archivo = {
+                "nombre": row.file_name,
+                "url": row.file_url,  # Mantenemos la URL de Moodle como referencia
+                "local_path": row.local_file_path  # Añadimos el path local
+            }
+            # Si el archivo está descargado localmente, usar su path como URL
+            if row.local_file_path:
+                archivo["url"] = f"/downloads/{row.local_file_path}"
+            entregas_dict[entrega_key]["archivos"].append(archivo)
     # Obtener la URL base de Moodle y el id de la tarea para construir el enlace manual
     tarea = db.query(TareaDB).filter(TareaDB.id == tarea_id).first()
     moodle_url = None

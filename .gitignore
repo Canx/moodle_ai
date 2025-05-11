@@ -22,6 +22,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
+# === BACKEND ===
+backend/downloads/
 # Archivos temporales de sistema
 .DS_Store
 Thumbs.db

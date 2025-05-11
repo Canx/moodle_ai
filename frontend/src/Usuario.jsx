@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useParams } from "react-router-dom";
+import LLMConfig from "./LLMConfig";
 
 function Usuario() {
   const { usuarioId } = useParams();
@@ -36,13 +37,17 @@ function Usuario() {
       ) : (
         <h2 style={{color: '#1976d2', fontSize: '2.2rem', marginBottom: 18, fontWeight: 700}}>Bienvenido, <span style={{fontWeight:800}}>{nombre}</span></h2>
       )}
-      <div style={{display:'flex', justifyContent:'center', gap: 24, marginTop: 32}}>
-        <Link to={`/usuario/${usuarioId}/cuentas`} style={{background: '#e3eefd', color: '#1976d2', border: 'none', borderRadius: 6, padding: '14px 32px', fontWeight: 600, fontSize: '1.12rem', textDecoration: 'none', transition: 'background 0.2s'}} onMouseOver={e => e.currentTarget.style.background='#d1e2fc'} onMouseOut={e => e.currentTarget.style.background='#e3eefd'}>
-          Gestionar Cuentas de Moodle
-        </Link>
-        <Link to="/" style={{background: '#e3eefd', color: '#1976d2', border: 'none', borderRadius: 6, padding: '14px 32px', fontWeight: 600, fontSize: '1.12rem', textDecoration: 'none', transition: 'background 0.2s'}} onMouseOver={e => e.currentTarget.style.background='#d1e2fc'} onMouseOut={e => e.currentTarget.style.background='#e3eefd'}>
-          Volver al Inicio
-        </Link>
+      <div style={{marginTop: 32}}>
+        <div style={{display:'flex', justifyContent:'center', gap: 24, marginBottom: 48}}>
+          <Link to={`/usuario/${usuarioId}/cuentas`} style={{background: '#e3eefd', color: '#1976d2', border: 'none', borderRadius: 6, padding: '14px 32px', fontWeight: 600, fontSize: '1.12rem', textDecoration: 'none', transition: 'background 0.2s'}} onMouseOver={e => e.currentTarget.style.background='#d1e2fc'} onMouseOut={e => e.currentTarget.style.background='#e3eefd'}>
+            Gestionar Cuentas de Moodle
+          </Link>
+          <Link to="/" style={{background: '#e3eefd', color: '#1976d2', border: 'none', borderRadius: 6, padding: '14px 32px', fontWeight: 600, fontSize: '1.12rem', textDecoration: 'none', transition: 'background 0.2s'}} onMouseOver={e => e.currentTarget.style.background='#d1e2fc'} onMouseOut={e => e.currentTarget.style.background='#e3eefd'}>
+            Volver al Inicio
+          </Link>
+        </div>          <div style={{borderTop: '1px solid #eee', paddingTop: 32}}>
+          <LLMConfig usuarioId={usuarioId} />
+        </div>
       </div>
     </div>
   );

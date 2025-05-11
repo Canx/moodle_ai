@@ -12,41 +12,123 @@ logger = logging.getLogger(__name__)
 def login_moodle(page, moodle_url, usuario, contrasena):
     login_url = f"{moodle_url}/login/index.php"
     logger.info(f"LOGIN SYNC: navegando a {login_url}")
-    page.goto(login_url, wait_until="networkidle")
-    logger.info("LOGIN SYNC: esperando selector 'form#login'")
-    # esperar form y token
-    page.wait_for_selector("form#login", timeout=15000)
-    logger.info("LOGIN SYNC: 'form#login' visible")
-    page.wait_for_selector("input[name='logintoken']", state="attached", timeout=15000)
-    logger.info("LOGIN SYNC: 'logintoken' attached")
-    page.fill("input[name='username']", usuario)
-    logger.info("LOGIN SYNC: username llenado")
-    page.fill("input[name='password']", contrasena)
-    logger.info("LOGIN SYNC: password llenado")
-    page.click("button#loginbtn")
-    logger.info("LOGIN SYNC: clic en loginbtn")
-    # Esperar breve para completar redirección
-    page.wait_for_selector(".navbar-menu-aules", timeout=15000)
-    # Comprobar rápidamente si hay mensaje de error de login
-    error_el = page.query_selector("#loginerrormessage")
-    if error_el:
-        mensaje = error_el.inner_text()
-        raise Exception(f"Login fallido: {mensaje}")
-    logger.info("LOGIN SYNC: login exitoso")
+    try:
+        page.goto(login_url, wait_until="networkidle")
+        logger.info("LOGIN SYNC: esperando selector 'form#login'")
+        # esperar form y token
+        page.wait_for_selector("form#login", timeout=15000)
+        logger.info("LOGIN SYNC: 'form#login' visible")
+        page.wait_for_selector("input[name='logintoken']", state="attached", timeout=15000)
+        logger.info("LOGIN SYNC: 'logintoken' attached")
+        page.fill("input[name='username']", usuario)
+        logger.info("LOGIN SYNC: username llenado")
+        page.fill("input[name='password']", contrasena)
+        logger.info("LOGIN SYNC: password llenado")
+        page.click("button#loginbtn")
+        logger.info("LOGIN SYNC: clic en loginbtn")
+        
+        # Esperar a que aparezca cualquiera de los elementos comunes post-login de Moodle
+        success = False
+        try:
+            # Intentar diferentes selectores comunes de Moodle
+            for selector in [".navbar-menu-aules", ".navbar-nav", "#nav-drawer", ".usermenu"]:
+                try:
+                    page.wait_for_selector(selector, timeout=5000)
+                    success = True
+                    break
+                except:
+                    continue
+            
+            if not success:
+                # Si no encontramos ningún elemento de navegación, esperar a que desaparezca el formulario
+                page.wait_for_selector("form#login", state="hidden", timeout=5000)
+                success = True
+        except:
+            pass
+
+        # Comprobar mensaje de error incluso si parece que el login fue exitoso
+        error_el = page.query_selector("#loginerrormessage")
+        if error_el:
+            mensaje = error_el.inner_text()
+            raise Exception(f"Login fallido: {mensaje}")
+            
+        if not success:
+            raise Exception("No se pudo confirmar login exitoso")
+            
+        logger.info("LOGIN SYNC: login exitoso")
+    except Exception as e:
+        logger.error(f"LOGIN SYNC: error durante el login: {str(e)}")
+        raise
 
 
 def get_cursos_moodle(page, moodle_url):
-    page.goto(f"{moodle_url}/local/gvaaules/view.php", wait_until="networkidle")
-    cursos = []
-    filas = page.query_selector_all("table tbody tr")
-    for fila in filas:
-        enlace = fila.query_selector("td.c2 a")
-        if enlace:
-            cursos.append({
-                "nombre": enlace.inner_text(),
-                "url": enlace.get_attribute("href")
-            })
-    return cursos
+    # Intentar primero la vista específica de GVA Aules
+    try:
+        page.goto(f"{moodle_url}/local/gvaaules/view.php", wait_until="networkidle", timeout=10000)
+        cursos = []
+        filas = page.query_selector_all("table tbody tr")
+        for fila in filas:
+            enlace = fila.query_selector("td.c2 a")
+            if enlace:
+                cursos.append({
+                    "nombre": enlace.inner_text(),
+                    "url": enlace.get_attribute("href")
+                })
+        if cursos:
+            return cursos
+    except Exception as e:
+        logger.warning(f"No se pudieron obtener cursos desde vista GVA Aules: {e}")
+
+    # Si no funciona, intentar la vista estándar de Moodle
+    try:
+        # Intentar la página de dashboard primero
+        page.goto(f"{moodle_url}/my/", wait_until="networkidle", timeout=10000)
+        
+        cursos = []
+        # Buscar cursos en el dashboard
+        for selector in [".courses .coursename a", ".course-info-container .coursename a", ".dashboard-card a.aalink"]:
+            try:
+                enlaces = page.query_selector_all(selector)
+                for enlace in enlaces:
+                    try:
+                        url = enlace.get_attribute("href")
+                        # Asegurarse de que es un enlace a curso válido
+                        if "course/view.php" in url:
+                            cursos.append({
+                                "nombre": enlace.inner_text().strip(),
+                                "url": url
+                            })
+                    except:
+                        continue
+            except:
+                continue
+                
+        if cursos:
+            return cursos
+            
+        # Si no hay cursos en el dashboard, intentar la página de cursos
+        page.goto(f"{moodle_url}/course/", wait_until="networkidle", timeout=10000)
+        for selector in [".coursename a", ".course-info-container h3 a", ".coursebox .info h3.coursename a"]:
+            try:
+                enlaces = page.query_selector_all(selector)
+                for enlace in enlaces:
+                    try:
+                        url = enlace.get_attribute("href")
+                        if "course/view.php" in url:
+                            cursos.append({
+                                "nombre": enlace.inner_text().strip(),
+                                "url": url
+                            })
+                    except:
+                        continue
+            except:
+                continue
+                
+        return cursos
+            
+    except Exception as e:
+        logger.error(f"Error obteniendo cursos: {e}")
+        raise Exception("No se pudieron obtener los cursos. El login puede haber fallado o la estructura del sitio es diferente.")
 
 
 def get_entregas_pendientes(page, tarea_id):
@@ -244,25 +326,35 @@ def _get_advanced_grading_sync(page, moodle_url, tarea_id):
     # Obtener contextid para advanced grading
     edit_url = f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1"
     logger.info(f"SYNC SCRAPE: obteniendo contextid desde {edit_url}")
-    page.goto(edit_url, wait_until="networkidle", timeout=15000)
     try:
+        page.goto(edit_url, wait_until="domcontentloaded", timeout=30000)
         hidden = page.query_selector("input[name='context']")
         contextid = hidden.get_attribute("value") if hidden else None
-    except:
-        link = page.query_selector("a[href*='/grade/grading/manage.php']")
-        href = link.get_attribute("href")
-        parsed = urlparse(href)
-        contextid = parse_qs(parsed.query).get('contextid',[None])[0]
+        if not contextid:
+            link = page.query_selector("a[href*='/grade/grading/manage.php']")
+            href = link.get_attribute("href") if link else None
+            if href:
+                parsed = urlparse(href)
+                contextid = parse_qs(parsed.query).get('contextid',[None])[0]
+    except Exception as e:
+        logger.warning(f"SYNC SCRAPE: error obteniendo contextid: {e}")
+        return None, None
+
+    if not contextid:
+        logger.warning("SYNC SCRAPE: no se pudo obtener contextid")
+        return None, None
+
     # Navegar a la gestión de grading
     mg_url = f"{moodle_url}/grade/grading/manage.php?contextid={contextid}&component=mod_assign&area=submissions"
     logger.info(f"SYNC SCRAPE: navegando a advanced grading page {mg_url}")
     try:
-        page.goto(mg_url, wait_until="networkidle", timeout=15000)
+        page.goto(mg_url, wait_until="domcontentloaded", timeout=30000)
         sel = page.wait_for_selector("select[name='setmethod']", timeout=10000)
-        tipo = sel.evaluate("el => el.value")
+        tipo = sel.evaluate("el => el.value") if sel else None
         detalles = None
-        if page.query_selector(".definition-preview"):
-            detalles = page.inner_html(".definition-preview")
+        preview = page.query_selector(".definition-preview")
+        if preview:
+            detalles = preview.inner_html()
         logger.info(f"SYNC SCRAPE: tipo_calificacion='{tipo}' extraído")
         return tipo, detalles
     except Exception as e:
@@ -275,12 +367,12 @@ def _get_max_grade_sync(page, moodle_url, tarea_id):
     logger.info(f"SYNC SCRAPE: obteniendo calificacion_maxima desde {url}")
     try:
         logger.info("SYNC SCRAPE: iniciando navegación a página de calificación")
-        page.goto(url, wait_until="commit", timeout=10000)  # Cambiado a "commit" para no esperar recursos
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
         logger.info("SYNC SCRAPE: navegación completada, buscando campo de calificación")
         
         # Intentar encontrar el campo con timeout más corto
         try:
-            inp = page.wait_for_selector("input#id_grade_modgrade_point", timeout=5000)
+            inp = page.wait_for_selector("input#id_grade_modgrade_point", timeout=10000)
             if inp:
                 val = inp.get_attribute("value")
                 cg = float(val.replace(',', '.')) if val else None
@@ -302,16 +394,16 @@ def _get_pending_submissions_sync(page, moodle_url, tarea_id):
     logger.info(f"SYNC SCRAPE: navegando a grading page {grading_url}")
     try:
         # Usar domcontentloaded en lugar de networkidle para evitar esperas indefinidas
-        page.goto(grading_url, wait_until="domcontentloaded", timeout=15000)
+        page.goto(grading_url, wait_until="domcontentloaded", timeout=30000)
         logger.info("SYNC SCRAPE: navegación básica completada")
         
-        # Esperar la tabla con timeout reducido
-        page.wait_for_selector("table.generaltable", timeout=10000)
+        # Esperar la tabla con timeout aumentado
+        page.wait_for_selector("table.generaltable", timeout=20000)
         logger.info("SYNC SCRAPE: tabla encontrada")
         
         # Intentar resetear el filtro si existe
         try:
-            filter_sel = page.wait_for_selector("select#id_filter", timeout=5000)
+            filter_sel = page.wait_for_selector("select#id_filter", timeout=10000)
             if filter_sel:
                 page.select_option("select#id_filter", "")
                 logger.info("SYNC SCRAPE: filtro reseteado")
@@ -321,7 +413,7 @@ def _get_pending_submissions_sync(page, moodle_url, tarea_id):
             logger.info(f"SYNC SCRAPE: no se encontró filtro o no se pudo resetear: {e}")
         
         # Esperar al menos una fila en la tabla
-        page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
+        page.wait_for_selector("table.generaltable tbody tr", timeout=20000)
         logger.info("SYNC SCRAPE: al menos una fila encontrada")
         
         entregas = get_entregas_pendientes(page, tarea_id)
@@ -476,50 +568,46 @@ async def _get_task_description_async(page, moodle_url, tarea_id):
         return None
 
 
-async def scrape_task_details_async(moodle_url, usuario, contrasena, tarea_id):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context = await browser.new_context()
-        page = await context.new_page()
-        
-        await login_moodle_async(page, moodle_url, usuario, contrasena)
-        
-        # Advanced grading: get contextid and scrape details
-        contextid = await _get_contextid_async(page, moodle_url, tarea_id)
-        config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
+async def scrape_task_details_async(page, moodle_url, tarea_id):
+    """
+    Version of scrape_task_details that reuses an existing logged-in page.
+    This eliminates redundant logins during task synchronization.
+    """
+    # Advanced grading: get contextid and scrape details
+    contextid = await _get_contextid_async(page, moodle_url, tarea_id)
+    config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
 
-        # Task description
-        desc = await _get_task_description_async(page, moodle_url, tarea_id)
+    # Task description
+    desc = await _get_task_description_async(page, moodle_url, tarea_id)
 
-        # Entregas
-        await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", wait_until="networkidle")
-        await page.wait_for_selector("table.generaltable", timeout=10000)
-        try:
-            await page.wait_for_selector("select#id_filter", timeout=5000)
-            await page.select_option("select#id_filter", "")
-            await page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
-        except:
-            pass
-            
-        entregas = await get_entregas_pendientes_async(page, tarea_id)
+    # Entregas
+    await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", wait_until="networkidle")
+    await page.wait_for_selector("table.generaltable", timeout=10000)
+    try:
+        await page.wait_for_selector("select#id_filter", timeout=5000)
+        await page.select_option("select#id_filter", "")
+        await page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
+    except:
+        pass
         
-        # Obtener calificación máxima si está disponible
-        max_grade = None
-        try:
-            await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1", wait_until="networkidle")
-            input_grade = await page.query_selector("input#id_grade_modgrade_point")
-            if input_grade:
-                value = await input_grade.get_attribute("value")
-                if value:
-                    max_grade = float(value.replace(',', '.'))
-        except Exception as e:
-            logger.warning(f"No se pudo obtener calificación máxima: {e}")
+    entregas = await get_entregas_pendientes_async(page, tarea_id)
+    
+    # Obtener calificación máxima si está disponible
+    max_grade = None
+    try:
+        await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1", wait_until="networkidle")
+        input_grade = await page.query_selector("input#id_grade_modgrade_point")
+        if input_grade:
+            value = await input_grade.get_attribute("value")
+            if value:
+                max_grade = float(value.replace(',', '.'))
+    except Exception as e:
+        logger.warning(f"No se pudo obtener calificación máxima: {e}")
 
-        await browser.close()
-        return {
-            "descripcion": desc,
-            "entregas_pendientes": entregas,
-            "tipo_calificacion": config_tipo,
-            "detalles_calificacion": detalles_calificacion,
-            "calificacion_maxima": max_grade
-        }
+    return {
+        "descripcion": desc,
+        "entregas_pendientes": entregas,
+        "tipo_calificacion": config_tipo,
+        "detalles_calificacion": detalles_calificacion,
+        "calificacion_maxima": max_grade
+    }

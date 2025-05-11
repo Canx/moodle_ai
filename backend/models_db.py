@@ -2,6 +2,19 @@ from sqlalchemy import Column, Integer, String, UniqueConstraint, ForeignKey, Fl
 from database import Base
 from datetime import datetime
 
+class LLMConfigDB(Base):
+    __tablename__ = "llm_configs"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, unique=True, nullable=False)
+    url_template = Column(String, nullable=False)
+    descripcion = Column(Text)
+
+class UsuarioLLMConfigDB(Base):
+    __tablename__ = "usuario_llm_config"
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"), primary_key=True)
+    llm_config_id = Column(Integer, ForeignKey("llm_configs.id"), primary_key=True)
+    is_default = Column(Boolean, default=False)
+
 class UsuarioDB(Base):
     __tablename__ = "usuarios"
     id = Column(Integer, primary_key=True, index=True)
@@ -58,6 +71,7 @@ class EntregaDB(Base):
     nota = Column(Float)
     feedback = Column(Text)
     nombre = Column(String)
+    local_file_path = Column(String, nullable=True)
     __table_args__ = (UniqueConstraint('tarea_id', 'alumno_id', name='uq_entrega_tarea_alumno'),)
 
 class SincronizacionDB(Base):

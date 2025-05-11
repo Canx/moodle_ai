@@ -17,6 +17,20 @@ def obtener_cuentas(usuario_id: int, db: Session = Depends(get_db)):
         for c in cuentas
     ]
 
+@router.get("/api/usuarios/{usuario_id}/cuentas/{cuenta_id}")
+def obtener_cuenta(usuario_id: int, cuenta_id: int, db: Session = Depends(get_db)):
+    cuenta = db.query(CuentaMoodleDB).filter(
+        CuentaMoodleDB.id == cuenta_id,
+        CuentaMoodleDB.usuario_id == usuario_id
+    ).first()
+    if not cuenta:
+        raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+    return {
+        "id": cuenta.id,
+        "moodle_url": cuenta.moodle_url,
+        "usuario_moodle": cuenta.usuario_moodle
+    }
+
 @router.post("/api/usuarios/{usuario_id}/cuentas")
 def agregar_cuenta(usuario_id: int, cuenta: CuentaMoodle, db: Session = Depends(get_db)):
     nueva_cuenta = CuentaMoodleDB(
@@ -46,6 +60,25 @@ def borrar_cuenta(usuario_id: int, cuenta_id: int, db: Session = Depends(get_db)
     cuenta_db = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == cuenta_id, CuentaMoodleDB.usuario_id == usuario_id).first()
     if not cuenta_db:
         raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+    
+    # Usar una conexión raw para operaciones que requieren SQL directo
+    conn = engine.raw_connection()
+    cursor = conn.cursor()
+    try:
+        # Eliminar registros relacionados en orden
+        cursor.execute("DELETE FROM sincronizaciones WHERE cuenta_id = %s", (cuenta_id,))
+        cursor.execute("DELETE FROM entregas WHERE tarea_id IN (SELECT id FROM tareas WHERE curso_id IN (SELECT id FROM cursos WHERE cuenta_id = %s))", (cuenta_id,))
+        cursor.execute("DELETE FROM tareas WHERE curso_id IN (SELECT id FROM cursos WHERE cuenta_id = %s)", (cuenta_id,))
+        cursor.execute("DELETE FROM cursos WHERE cuenta_id = %s", (cuenta_id,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar datos relacionados: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+    # Ahora sí podemos eliminar la cuenta
     db.delete(cuenta_db)
     db.commit()
     return {"mensaje": "Cuenta de Moodle eliminada exitosamente"}
@@ -193,14 +226,17 @@ def sincronizar_cursos_cuenta(cuenta_id: int):
         return {"mensaje": "Sincronización de cursos completada", "cursos": cursos}
     except Exception as e:
         conn.rollback()  # Clear aborted transaction
+        error_msg = str(e)
+        estado = "error_credenciales" if "Login fallido" in error_msg else "error"
         cursor.execute(
             "INSERT INTO sincronizaciones (cuenta_id, estado, fecha, porcentaje, tipo, duracion) "
             "VALUES (%s, %s, NOW(), 0.0, 'cursos', NULL) "
             "ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW(), porcentaje = EXCLUDED.porcentaje",
-            (cuenta_id, "error")
+            (cuenta_id, f"{estado}: {error_msg}")
         )
         conn.commit()
-        raise HTTPException(status_code=500, detail=f"Error al sincronizar cursos: {e}")
+        raise HTTPException(status_code=401 if estado == "error_credenciales" else 500, 
+                          detail=error_msg)
 
     cursor.execute(
         "SELECT usuario_moodle, contrasena_moodle, moodle_url FROM cuentas_moodle WHERE id = %s",

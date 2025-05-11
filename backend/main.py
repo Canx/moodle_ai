@@ -1,7 +1,7 @@
 # backend/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from endpoints import usuarios, cuentas, cursos, tareas
+from endpoints import usuarios, cuentas, cursos, tareas, llm_configs
 from database import Base, engine
 from models_db import UsuarioDB
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +12,7 @@ app.include_router(usuarios.router)
 app.include_router(cuentas.router)
 app.include_router(cursos.router)
 app.include_router(tareas.router)
+app.include_router(llm_configs.router)
 
 # Crear todas las tablas al arrancar
 Base.metadata.create_all(bind=engine)

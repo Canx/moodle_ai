@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { Spinner } from "react-bootstrap";
 
 function CursosDeCuenta() {
@@ -12,6 +12,8 @@ function CursosDeCuenta() {
   const [cursosOcultos, setCursosOcultos] = useState([]);
   const [openCourseMenuId, setOpenCourseMenuId] = useState(null);
   const [unhidingCourseId, setUnhidingCourseId] = useState(null);
+  const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchCursos = async () => {
@@ -35,13 +37,40 @@ function CursosDeCuenta() {
 
   const sincronizar = async () => {
     setSincronizando(true);
-    await fetch(`/api/cuentas/${cuentaId}/sincronizar_cursos`, { method: "POST" });
-    // Polling
+    setError(null);
+    try {
+      const res = await fetch(`/api/cuentas/${cuentaId}/sincronizar_cursos`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        if (res.status === 401) {
+          setError("Las credenciales de Moodle son incorrectas. Por favor, edita la cuenta para corregirlas.");
+          setSincronizando(false);
+          setMenuOpen(false);
+          return;
+        }
+        throw new Error(data.detail || "Error desconocido al sincronizar");
+      }
+    } catch (e) {
+      setError(e.message);
+      setSincronizando(false);
+      setMenuOpen(false);
+      return;
+    }
+
+    // Polling de estado
     const checkEstado = async () => {
       const res = await fetch(`/api/cuentas/${cuentaId}/sincronizacion`);
       const data = await res.json();
       if (data.estado === "sincronizando") {
         setTimeout(checkEstado, 2000);
+      } else if (data.estado.startsWith("error_credenciales:")) {
+        setError("Las credenciales de Moodle son incorrectas. Por favor, edita la cuenta para corregirlas.");
+        setSincronizando(false);
+        setMenuOpen(false);
+      } else if (data.estado.startsWith("error:")) {
+        setError(data.estado.substring(6));
+        setSincronizando(false);
+        setMenuOpen(false);
       } else {
         setSincronizando(false);
         setMenuOpen(false);
@@ -70,6 +99,9 @@ function CursosDeCuenta() {
                 'Sincronizar cursos'
               )}
             </button>
+            <button onClick={() => navigate(`/usuario/${usuarioId}/cuentas/${cuentaId}/edit`)} style={{display:'flex', alignItems:'center', padding:'8px 12px', background:'none', border:'none', width:'100%', textAlign:'left', cursor:'pointer'}}>
+              Editar cuenta
+            </button>
           </div>
         )}
       </div>
@@ -79,6 +111,11 @@ function CursosDeCuenta() {
         </Link>
       </div>
       <h2 style={{color: '#1976d2', fontSize: '2rem', marginBottom: 18}}>{account ? `Cursos de la cuenta ${account.usuario_moodle}` : 'Cursos de la cuenta'}</h2>
+      {error && (
+        <div style={{background: '#fdecea', color: '#d32f2f', padding: '12px 20px', borderRadius: 8, marginBottom: 20, textAlign: 'left'}}>
+          {error}
+        </div>
+      )}
       <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '22px', width: '100%'}}>
         {cursos.length === 0 && (
           <div style={{width: '100%', background: '#f7fafd', borderRadius: 12, boxShadow: '0 2px 8px #0001', padding: '32px 0', color: '#888', fontSize: '1.13rem', textAlign: 'center'}}>

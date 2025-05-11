@@ -95,32 +95,48 @@ function TareasDeCurso() {
       <div style={{display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '20px'}}>
         {tareas.length === 0 && <div style={{background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px #0001', padding: '18px 24px', minWidth: 260, maxWidth: 340, flex: '1 0 260px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'}}>No hay tareas sincronizadas.</div>}
         {tareas.map((tarea) => (
-          <div key={tarea.id || tarea.nombre} style={{position: 'relative', background: '#fff', borderRadius: '12px', boxShadow: '0 2px 8px #0001', padding: '18px 24px', minWidth: 260, maxWidth: 340, flex: '1 0 260px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'}}>
+          <div key={tarea.id || tarea.nombre} style={{
+            position: 'relative', 
+            background: tarea.pendientes > 0 ? '#fff8f8' : (tarea.entregadas > 0 ? '#f8fff8' : '#fff'),
+            borderRadius: '12px', 
+            boxShadow: '0 2px 8px #0001',
+            borderLeft: tarea.pendientes > 0 ? '4px solid #ef5350' : (tarea.entregadas > 0 ? '4px solid #66bb6a' : '4px solid #e0e0e0'),
+            padding: '18px 24px', 
+            minWidth: 260, 
+            maxWidth: 340, 
+            flex: '1 0 260px', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            justifyContent: 'space-between'
+          }}>
             <Link to={`/usuario/${usuarioId}/cuentas/${cuentaId}/cursos/${cursoId}/tareas/${tarea.id}/detalle`} style={{ color: '#1976d2', fontWeight: 'bold', fontSize: '1.1rem', textDecoration: 'none', marginBottom: 8 }}>
               {tarea.titulo}
             </Link>
             <div style={{ fontSize: '0.95rem', color: '#555', marginBottom: 4 }}>
               Entregadas: {tarea.entregadas}
             </div>
-            <div style={{ fontSize: '0.95rem', color: '#555', marginBottom: 8 }}>
-              Sin calificación: {tarea.pendientes}
-            </div>
-            <span style={{
-              display: 'inline-block',
-              marginTop: 6,
-              padding: '4px 10px',
-              borderRadius: 12,
-              fontSize: '0.95em',
-              fontWeight: 500,
-              color: '#fff',
-              background: tarea.estado === 'pendiente_calificar' ? '#f39c12' : tarea.estado === 'sin_entregas' ? '#888' : tarea.estado === 'sin_pendientes' ? '#27ae60' : '#bbb',
-              alignSelf: 'flex-start'
+            <div style={{ 
+              fontSize: '0.95rem', 
+              marginBottom: 8,
+              color: tarea.pendientes > 0 ? '#d32f2f' : (tarea.entregadas > 0 ? '#2e7d32' : '#555'),
+              fontWeight: tarea.pendientes > 0 ? 600 : 400
             }}>
-              {tarea.estado === 'pendiente_calificar' && 'Pendiente de calificar'}
-              {tarea.estado === 'sin_entregas' && 'Sin entregas'}
-              {tarea.estado === 'sin_pendientes' && 'Sin pendientes'}
-              {!['pendiente_calificar','sin_entregas','sin_pendientes'].includes(tarea.estado) && (tarea.estado || 'Desconocido')}
-            </span>
+              Por calificar: {tarea.pendientes}
+            </div>
+            {tarea.estado === 'sin_entregas' && (
+              <span style={{
+                display: 'inline-block',
+                padding: '4px 10px',
+                borderRadius: 12,
+                fontSize: '0.95em',
+                fontWeight: 500,
+                color: '#fff',
+                background: '#888',
+                alignSelf: 'flex-start'
+              }}>
+                Sin entregas
+              </span>
+            )}
             {/* Menú de acciones */}
             <button onClick={() => setOpenMenuId(openMenuId === tarea.id ? null : tarea.id)} style={{position: 'absolute', top: 8, right: 8, background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer'}}>⋮</button>
             {openMenuId === tarea.id && (
