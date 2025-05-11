@@ -182,7 +182,10 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
             # Procesar cada tarea
             for idx, info in enumerate(tareas_info, start=1):
                 # Actualizar progreso
-                sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id == cuenta_id).first()
+                sin = db_task.query(SincronizacionDB).filter(
+                    SincronizacionDB.cuenta_id == cuenta_id,
+                    SincronizacionDB.curso_id == curso_id
+                ).first()
                 if sin:
                     sin.estado = f"sincronizando tarea {idx}/{total}"
                     sin.fecha = datetime.utcnow()
@@ -285,7 +288,10 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
             await browser.close()
             
             # Actualizar estado final
-            sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id==cuenta_id).first()
+            sin = db_task.query(SincronizacionDB).filter(
+                SincronizacionDB.cuenta_id==cuenta_id,
+                SincronizacionDB.curso_id==curso_id
+            ).first()
             if sin:
                 sin.estado = 'completada'
                 sin.fecha = datetime.utcnow()
@@ -298,7 +304,10 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
         logger.error(f"Error en sincronización: {e}")
         traceback.print_exc()
         db_task.rollback()
-        sin = db_task.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id==cuenta_id).first()
+        sin = db_task.query(SincronizacionDB).filter(
+            SincronizacionDB.cuenta_id==cuenta_id,
+            SincronizacionDB.curso_id==curso_id
+        ).first()
         if sin:
             sin.estado = f"error: {e}"
             sin.fecha = datetime.utcnow()
@@ -324,10 +333,14 @@ def sincronizar_tareas_curso(curso_id: int):
         raise HTTPException(status_code=404, detail="Cuenta no encontrada")
     now = datetime.utcnow()
     # Inicializar o reiniciar sincronización con campos de progreso
-    sin = db.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id==cuenta.id).first()
+    sin = db.query(SincronizacionDB).filter(
+        SincronizacionDB.cuenta_id==cuenta.id,
+        SincronizacionDB.curso_id==curso_id
+    ).first()
     if not sin:
         sin = SincronizacionDB(
             cuenta_id=cuenta.id,
+            curso_id=curso_id,
             estado='sincronizando',
             fecha=now,
             fecha_inicio=now,
@@ -355,7 +368,10 @@ def estado_sincronizacion(curso_id: int, db: Session = Depends(get_db)):
     curso = db.query(CursoDB).filter(CursoDB.id == curso_id).first()
     if not curso:
         raise HTTPException(status_code=404, detail="Curso no encontrado")
-    sin = db.query(SincronizacionDB).filter(SincronizacionDB.cuenta_id == curso.cuenta_id).first()
+    sin = db.query(SincronizacionDB).filter(
+        SincronizacionDB.cuenta_id == curso.cuenta_id,
+        SincronizacionDB.curso_id == curso_id
+    ).first()
     if not sin:
         return {"estado": "no_iniciado", "fecha": None}
     return {

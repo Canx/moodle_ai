@@ -77,6 +77,7 @@ class EntregaDB(Base):
 class SincronizacionDB(Base):
     __tablename__ = "sincronizaciones"
     cuenta_id = Column(Integer, ForeignKey("cuentas_moodle.id"), primary_key=True)
+    curso_id = Column(Integer, ForeignKey("cursos.id"), primary_key=True)
     estado = Column(String, nullable=False)
     fecha = Column(DateTime, default=datetime.utcnow, nullable=False)
     fecha_inicio = Column(DateTime, nullable=True)

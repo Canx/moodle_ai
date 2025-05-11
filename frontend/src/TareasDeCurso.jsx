@@ -40,7 +40,7 @@ function TareasDeCurso() {
     let interval;
     const fetchStatus = async () => {
       try {
-        // Obtener estado de sincronización
+        // Obtener estado de sincronización específico del curso
         const res = await fetch(`/api/cursos/${cursoId}/sincronizacion`);
         if (res.ok) {
           const data = await res.json();
@@ -55,12 +55,14 @@ function TareasDeCurso() {
             }
           }
           
-          // Si se completó, detener el polling
-          if (data.estado === 'completada') {
+          // Si se completó o hubo un error, detener el polling
+          if (data.estado === 'completada' || data.estado.startsWith('error')) {
             clearInterval(interval);
           }
         }
-      } catch {};
+      } catch (e) {
+        console.error("Error obteniendo estado de sincronización:", e);
+      }
     };
     
     // Ejecutar inmediatamente y configurar el intervalo
@@ -76,9 +78,14 @@ function TareasDeCurso() {
 
   const sincronizarTareas = async () => {
     setSincronizando(true);
-    setSyncStatus({ estado: 'sincronizando', fecha: new Date().toISOString() });
     try {
-      await fetch(`/api/cursos/${cursoId}/sincronizar_tareas`, { method: "POST" });
+      const res = await fetch(`/api/cursos/${cursoId}/sincronizar_tareas`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        console.error("Error iniciando sincronización:", data.detail);
+      } else {
+        setSyncStatus({ estado: 'sincronizando', fecha: new Date().toISOString() });
+      }
     } catch (e) {
       console.error("Error iniciando sincronización:", e);
     }
@@ -280,24 +287,42 @@ function TareasDeCurso() {
                 zIndex: 10
               }}>
                 <div onClick={async () => {
-                  // Iniciar sincronización y cerrar menú
-                  await fetch(`/api/tareas/${tarea.id}/sincronizar`, { method: 'POST' });
-                  setOpenMenuId(null);
-                  
-                  // Marcar estado de tarea como sincronizando en UI
-                  setTareas(ts => ts.map(x => x.id === tarea.id ? {...x, estado: 'sincronizando'} : x));
-                  
-                  // Polling 5s usando lista de tareas para refrescar counts y estado
-                  const intervalId = setInterval(async () => {
-                    const resList = await fetch(`/api/cursos/${cursoId}/tareas`);
-                    if (!resList.ok) return;
-                    const list = await resList.json();
-                    const updated = list.find(u => u.id === tarea.id);
-                    if (updated && updated.descripcion !== tarea.descripcion) {
-                      clearInterval(intervalId);
-                      setTareas(ts => ts.map(x => x.id === tarea.id ? updated : x));
+                  try {
+                    // Iniciar sincronización y cerrar menú
+                    const res = await fetch(`/api/tareas/${tarea.id}/sincronizar`, { method: 'POST' });
+                    if (!res.ok) {
+                      const data = await res.json();
+                      console.error("Error sincronizando tarea:", data.detail);
+                      return;
                     }
-                  }, 5000);
+                    setOpenMenuId(null);
+                    
+                    // Marcar estado de tarea como sincronizando en UI
+                    setTareas(ts => ts.map(x => x.id === tarea.id ? {...x, estado: 'sincronizando'} : x));
+                    
+                    // Polling para refrescar el estado de la tarea
+                    const intervalId = setInterval(async () => {
+                      try {
+                        const resList = await fetch(`/api/cursos/${cursoId}/tareas`);
+                        if (!resList.ok) return;
+                        const list = await resList.json();
+                        const updated = list.find(u => u.id === tarea.id);
+                        if (updated && (
+                          updated.estado === 'completada' || 
+                          updated.estado.startsWith('error') ||
+                          updated.descripcion !== tarea.descripcion
+                        )) {
+                          clearInterval(intervalId);
+                          setTareas(ts => ts.map(x => x.id === tarea.id ? updated : x));
+                        }
+                      } catch (e) {
+                        console.error("Error actualizando estado de tarea:", e);
+                        clearInterval(intervalId);
+                      }
+                    }, 3000); // Reducido a 3s para mayor frecuencia
+                  } catch (e) {
+                    console.error("Error sincronizando tarea:", e);
+                  }
                 }} 
                 style={{
                   padding: '8px 16px',
