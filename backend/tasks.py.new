@@ -1,0 +1,109 @@
+"""Tareas Celery para procesamiento asíncrono."""
+
+from celery_app import celery_app
+from endpoints.cursos import run_sync_tareas
+from celery.utils.log import get_task_logger
+from database import SessionLocal
+from models_db import TareaDB, CuentaMoodleDB, EntregaDB
+from datetime import datetime
+from pathlib import Path
+from playwright.async_api import async_playwright
+import asyncio
+from contextlib import asynccontextmanager
+from services.download_manager import download_submission_files
+from services.scraper_service import login_moodle_async, scrape_task_details_async
+from services.task_sync_service import sync_single_task
+
+# Logger para la tarea de sincronización
+logger = get_task_logger(__name__)
+
+@asynccontextmanager
+async def get_browser_context():
+    """Contexto de navegador compartido para todas las operaciones."""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True, 
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process"
+            ]
+        )
+        context = await browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            accept_downloads=True
+        )
+        try:
+            yield context
+        finally:
+            await context.close()
+            await browser.close()
+
+@celery_app.task(name='run_sync_tareas_task')
+def run_sync_tareas_task(cuenta_id, curso_id, moodle_url, usuario, contrasena, url_curso):
+    """Tarea para sincronizar todas las tareas de un curso."""
+    logger.info(f"Worker: comenzando sincronización del curso {curso_id} (cuenta {cuenta_id})")
+    try:
+        run_sync_tareas(cuenta_id, curso_id, moodle_url, usuario, contrasena, url_curso)
+        logger.info(f"Worker: sincronización completada del curso {curso_id} (cuenta {cuenta_id})")
+    except Exception as e:
+        logger.exception(f"Worker: error al sincronizar curso {curso_id} (cuenta {cuenta_id}): {e}")
+        raise
+
+@celery_app.task(name='run_sync_tarea_task')
+def run_sync_tarea_task(tarea_db_id):
+    """Tarea para sincronizar una tarea individual."""
+    log = get_task_logger(__name__)
+    log.info(f"Worker: comenzando sincronización de la tarea {tarea_db_id}")
+    db = SessionLocal()
+    
+    async def sync_task_async():
+        tarea = db.query(TareaDB).filter(TareaDB.id == tarea_db_id).first()
+        if not tarea:
+            raise ValueError(f"Tarea {tarea_db_id} no encontrada")
+            
+        cuenta = db.query(CuentaMoodleDB).filter(CuentaMoodleDB.id == tarea.cuenta_id).first()
+        if not cuenta:
+            raise ValueError(f"Cuenta Moodle {tarea.cuenta_id} no encontrada para tarea {tarea_db_id}")
+
+        tarea.estado = 'sincronizando'
+        db.commit()
+        log.info(f"Worker: estado de tarea {tarea_db_id} actualizado a 'sincronizando'")
+
+        async with get_browser_context() as context:
+            page = await context.new_page()
+            
+            # Login
+            await login_moodle_async(page, cuenta.moodle_url, cuenta.usuario_moodle, cuenta.contrasena_moodle)
+            log.info("SCRAPER: login moodle OK")
+
+            # Usar el servicio compartido de sincronización
+            task_info = {
+                'tarea_id': tarea.tarea_id,
+                'titulo': tarea.titulo,
+                'url': None  # La URL no es necesaria para la sincronización
+            }
+
+            await sync_single_task(
+                db=db,
+                task_info=task_info,
+                page=page,
+                cuenta_id=cuenta.id,
+                curso_id=tarea.curso_id,
+                moodle_url=cuenta.moodle_url,
+                existing_task=tarea,
+                was_hidden=tarea.oculto
+            )
+
+            log.info(f"Worker: sincronización completada de la tarea {tarea_db_id}")
+    
+    try:
+        asyncio.run(sync_task_async())
+    except Exception as e:
+        log.exception(f"Worker: error sincronizando tarea {tarea_db_id}: {e}")
+        db.rollback()
+        db.query(TareaDB).filter(TareaDB.id == tarea_db_id).update({'estado':'error'})
+        db.commit()
+    finally:
+        db.close()

@@ -526,36 +526,87 @@ async def get_entregas_pendientes_async(page, tarea_id):
 
 
 async def _get_contextid_async(page, moodle_url, tarea_id):
-    # Navigate to module settings to retrieve context
-    await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}", wait_until="networkidle")
-    hidden = await page.query_selector("input[name='context']")
-    if hidden:
-        return await hidden.get_attribute("value")
-    link = await page.wait_for_selector("a[href*='/grade/grading/manage.php']", timeout=5000)
-    href = await link.get_attribute("href")
-    parsed = urlparse(href)
-    qs = parse_qs(parsed.query)
-    return qs.get('contextid', [None])[0]
+    """
+    Attempts to get the context ID for advanced grading in multiple ways.
+    Returns None if advanced grading is not available.
+    """
+    try:
+        # Navigate to module settings to retrieve context
+        await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}", wait_until="domcontentloaded")
+        
+        # First try the hidden input (fastest)
+        try:
+            hidden = await page.query_selector("input[name='context']")
+            if hidden:
+                value = await hidden.get_attribute("value")
+                if value:
+                    return value
+        except:
+            pass
+            
+        # Then try finding the grading link (alternative method)
+        try:
+            links = await page.query_selector_all("a[href*='/grade/grading/manage.php']")
+            for link in links:
+                href = await link.get_attribute("href")
+                if href:
+                    parsed = urlparse(href)
+                    qs = parse_qs(parsed.query)
+                    contextid = qs.get('contextid', [None])[0]
+                    if contextid:
+                        return contextid
+        except:
+            pass
+            
+        # If we get here, no context ID was found
+        logger.info(f"No advanced grading context found for task {tarea_id}")
+        return None
+            
+    except Exception as e:
+        logger.warning(f"Error getting context ID for task {tarea_id}: {e}")
+        return None
 
 
 async def _get_advanced_grading_async(page, moodle_url, contextid):
-    # Scrape grading type and preview from manage.php
-    url = f"{moodle_url}/grade/grading/manage.php?contextid={contextid}&component=mod_assign&area=submissions"
-    await page.goto(url, wait_until="networkidle")
-    select = await page.wait_for_selector("select[name='setmethod']", timeout=5000)
-    # list options for debug
-    opts = await select.query_selector_all("option")
-    for o in opts:
-        val = await o.evaluate("el => el.value")
-        txt = await o.evaluate("el => el.textContent")
-        sel = await o.get_attribute("selected")
-        print(f"DEBUG option: value={val!r}, selected={sel!r}, text={txt!r}")
-    tipo = await select.evaluate("el => el.value")
-    preview_sel = ".definition-preview"
-    detalles = None
-    if await page.query_selector(preview_sel):
-        detalles = await page.inner_html(preview_sel)
-    return tipo, detalles
+    """
+    Gets the advanced grading configuration if available.
+    Returns (None, None) if advanced grading is not configured.
+    """
+    if not contextid:
+        return None, None
+        
+    try:
+        # Navigate to grading management page
+        url = f"{moodle_url}/grade/grading/manage.php?contextid={contextid}&component=mod_assign&area=submissions"
+        await page.goto(url, wait_until="domcontentloaded")
+        
+        # Look for grading method selector with shorter timeout
+        try:
+            select = await page.wait_for_selector("select[name='setmethod']", timeout=5000)
+            if not select:
+                return None, None
+                
+            # Get selected grading type
+            tipo = await select.evaluate("el => el.value")
+            
+            # Try to get preview content if available
+            detalles = None
+            try:
+                preview = await page.query_selector(".definition-preview")
+                if preview:
+                    detalles = await preview.inner_html()
+            except:
+                pass
+                
+            return tipo, detalles
+            
+        except Exception as e:
+            logger.info(f"No grading method selector found: {e}")
+            return None, None
+            
+    except Exception as e:
+        logger.warning(f"Error accessing advanced grading page: {e}")
+        return None, None
 
 
 async def _get_task_description_async(page, moodle_url, tarea_id):
@@ -573,29 +624,15 @@ async def scrape_task_details_async(page, moodle_url, tarea_id):
     Version of scrape_task_details that reuses an existing logged-in page.
     This eliminates redundant logins during task synchronization.
     """
-    # Advanced grading: get contextid and scrape details
-    contextid = await _get_contextid_async(page, moodle_url, tarea_id)
-    config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
-
-    # Task description
-    desc = await _get_task_description_async(page, moodle_url, tarea_id)
-
-    # Entregas
-    await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading", wait_until="networkidle")
-    await page.wait_for_selector("table.generaltable", timeout=10000)
-    try:
-        await page.wait_for_selector("select#id_filter", timeout=5000)
-        await page.select_option("select#id_filter", "")
-        await page.wait_for_selector("table.generaltable tbody tr", timeout=10000)
-    except:
-        pass
-        
-    entregas = await get_entregas_pendientes_async(page, tarea_id)
+    logger.info(f"SCRAPER: comenzando scraping de detalles para tarea {tarea_id}")
     
-    # Obtener calificación máxima si está disponible
+    # Task description first (most likely to succeed)
+    desc = await _get_task_description_async(page, moodle_url, tarea_id)
+    
+    # Get calificación máxima if available
     max_grade = None
     try:
-        await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1", wait_until="networkidle")
+        await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}", wait_until="domcontentloaded")
         input_grade = await page.query_selector("input#id_grade_modgrade_point")
         if input_grade:
             value = await input_grade.get_attribute("value")
@@ -604,10 +641,86 @@ async def scrape_task_details_async(page, moodle_url, tarea_id):
     except Exception as e:
         logger.warning(f"No se pudo obtener calificación máxima: {e}")
 
-    return {
-        "descripcion": desc,
-        "entregas_pendientes": entregas,
-        "tipo_calificacion": config_tipo,
-        "detalles_calificacion": detalles_calificacion,
-        "calificacion_maxima": max_grade
-    }
+    # Advanced grading: get contextid and scrape details (optional)
+    contextid = await _get_contextid_async(page, moodle_url, tarea_id)
+    config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
+
+    # Entregas (with improved navigation and error handling)
+    try:
+        # First try with the base assign view
+        logger.info(f"SCRAPER: navegando a vista de calificación para tarea {tarea_id}")
+        grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading"
+        await page.goto(grading_url, wait_until="domcontentloaded")
+        
+        # Check if we're actually on the grading page
+        try:
+            # Look for any sign that we're on a grading page
+            table = await page.query_selector("table.generaltable")
+            if not table:
+                # Try to find the "Grade" button/link that might take us to the grading view
+                grade_links = await page.query_selector_all("a[href*='grading']")
+                for link in grade_links:
+                    link_text = await link.inner_text()
+                    if any(word in link_text.lower() for word in ["grade", "calificar", "evaluar"]):
+                        await link.click()
+                        await page.wait_for_load_state("networkidle")
+                        break
+                
+                # Check again for the table after possible navigation
+                table = await page.query_selector("table.generaltable")
+                if not table:
+                    logger.info(f"No grading table found for task {tarea_id} after navigation attempts")
+                    return {
+                        "descripcion": desc,
+                        "tipo_calificacion": config_tipo,
+                        "detalles_calificacion": detalles_calificacion,
+                        "entregas_pendientes": [],
+                        "calificacion_maxima": max_grade
+                    }
+
+        except Exception as e:
+            logger.warning(f"Error checking grading view: {e}")
+            return {
+                "descripcion": desc,
+                "tipo_calificacion": config_tipo,
+                "detalles_calificacion": detalles_calificacion,
+                "entregas_pendientes": [],
+                "calificacion_maxima": max_grade
+            }
+
+        # If we get here, we found the grading table
+        try:
+            select = await page.query_selector("select#id_filter")
+            if select:
+                await page.select_option("select#id_filter", "")
+                await page.wait_for_timeout(2000)  # Give it time to refresh
+                
+                # Wait for table rows after filter change
+                try:
+                    await page.wait_for_selector("table.generaltable tbody tr", timeout=5000)
+                except:
+                    pass  # Continue even if no rows appear
+        except Exception as e:
+            logger.info(f"Filter handling failed (non-critical): {e}")
+            
+        # Get submissions whether filter worked or not
+        entregas = await get_entregas_pendientes_async(page, tarea_id)
+        logger.info(f"SCRAPER: encontradas {len(entregas)} entregas para tarea {tarea_id}")
+        
+        return {
+            "descripcion": desc,
+            "entregas_pendientes": entregas,
+            "tipo_calificacion": config_tipo,
+            "detalles_calificacion": detalles_calificacion,
+            "calificacion_maxima": max_grade
+        }
+            
+    except Exception as e:
+        logger.error(f"Error processing submissions for task {tarea_id}: {e}")
+        return {
+            "descripcion": desc,
+            "tipo_calificacion": config_tipo,
+            "detalles_calificacion": detalles_calificacion,
+            "entregas_pendientes": [],
+            "calificacion_maxima": max_grade
+        }
