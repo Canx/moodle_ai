@@ -10,7 +10,9 @@ import re
 import time
 from datetime import datetime, timedelta
 import json
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/api/tareas/{tarea_id}")
@@ -139,14 +141,14 @@ from database import SessionLocal
 def evaluar_entregas_task(tarea_id: int):
     db = SessionLocal()
     try:
-        print(f"[DEBUG] Iniciando evaluación de entregas para tarea {tarea_id}")
+        logger.debug(f"Iniciando evaluación de entregas para tarea {tarea_id}")
         # Obtener todas las entregas pendientes de la tarea
         entregas = db.query(EntregaDB).filter(
             EntregaDB.tarea_id == tarea_id,
             (EntregaDB.estado == None) | (EntregaDB.estado != "evaluada")
         ).all()
         for entrega in entregas:
-            print(f"[DEBUG] Evaluando entrega {entrega.id} de alumno {entrega.alumno_id}")
+            logger.debug(f"Evaluando entrega {entrega.id} de alumno {entrega.alumno_id}")
             # Descargar archivo si existe
             if entrega.file_url:
                 import os, requests
@@ -157,9 +159,9 @@ def evaluar_entregas_task(tarea_id: int):
                     r = requests.get(entrega.file_url)
                     with open(local_path, "wb") as f:
                         f.write(r.content)
-                    print(f"[DEBUG] Archivo descargado en {local_path}")
+                    logger.debug(f"Archivo descargado en {local_path}")
                 except Exception as err:
-                    print(f"[ERROR] No se pudo descargar {entrega.file_url}: {err}")
+                    logger.error(f"No se pudo descargar {entrega.file_url}: {err}")
             # Aquí iría la llamada a la API de OpenAI/Assistants y el guardado de nota/feedback
             # Simulación de evaluación:
             entrega.nota = 10.0  # Simulación
@@ -171,7 +173,7 @@ def evaluar_entregas_task(tarea_id: int):
         db.commit()
     finally:
         db.close()
-    print(f"[DEBUG] Evaluación completada para tarea {tarea_id}")
+    logger.debug(f"Evaluación completada para tarea {tarea_id}")
 
 @router.post("/api/tareas/{tarea_id}/ocultar")
 def ocultar_tarea(tarea_id: int, db: Session = Depends(get_db)):

@@ -1,9 +1,12 @@
 from playwright.sync_api import sync_playwright
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 def login_moodle(page, moodle_url, usuario, contrasena):
     login_url = f"{moodle_url}/login/index.php"
-    print("[INFO] Accediendo a:", login_url)
+    logger.info(f"Accediendo a: {login_url}")
     page.goto(login_url, wait_until="networkidle")
     # Esperar form y token de validación
     try:
@@ -11,16 +14,16 @@ def login_moodle(page, moodle_url, usuario, contrasena):
         # El input logintoken es hidden, esperamos a que esté en el DOM
         page.wait_for_selector("input[name='logintoken']", state="attached", timeout=5000)
     except Exception as e:
-        print(f"[ERROR] No apareció formulario de login o logintoken: {e}")
+        logger.error(f"No apareció formulario de login o logintoken: {e}")
         raise
-    print(f"[INFO] Introduciendo credenciales: usuario={usuario}, contraseña={'*' * len(contrasena)}")
+    logger.info(f"Introduciendo credenciales: usuario={usuario}, contraseña={'*' * len(contrasena)}")
     page.fill("input[name='username']", usuario)
     page.fill("input[name='password']", contrasena)
     # Clic en botón de login
     try:
         page.click("button#loginbtn")
     except Exception as e:
-        print(f"[ERROR] No se pudo hacer clic en loginbtn: {e}")
+        logger.error(f"No se pudo hacer clic en loginbtn: {e}")
         raise
     # Esperar resultado de login
     try:
@@ -29,17 +32,17 @@ def login_moodle(page, moodle_url, usuario, contrasena):
         pass
     if page.is_visible("#loginerrormessage"):
         mensaje_error = page.inner_text("#loginerrormessage")
-        print(f"[ERROR] Login fallido: {mensaje_error}")
+        logger.error(f"Login fallido: {mensaje_error}")
         raise Exception(mensaje_error)
 
 def get_cursos_moodle(page, moodle_url):
-    print("[INFO] Navegando a la tabla de cursos personalizada")
+    logger.info("Navegando a la tabla de cursos personalizada")
     try:
         page.goto(f"{moodle_url}/local/gvaaules/view.php", wait_until="networkidle")
     except Exception as e:
-        print(f"[ERROR] No se pudo acceder a /local/gvaaules/view.php: {e}")
+        logger.error(f"No se pudo acceder a /local/gvaaules/view.php: {e}")
         raise Exception("No se pudo acceder a la lista de cursos personalizada")
-    print("[INFO] Buscando cursos en la tabla personalizada")
+    logger.info("Buscando cursos en la tabla personalizada")
     cursos = []
     filas = page.query_selector_all("table tbody tr")
     for fila in filas:
@@ -48,9 +51,9 @@ def get_cursos_moodle(page, moodle_url):
             nombre = enlace.inner_text()
             href = enlace.get_attribute("href")
             cursos.append({"nombre": nombre, "url": href})
-    print(f"[DEBUG] Cursos encontrados: {len(cursos)}")
+    logger.debug(f"Cursos encontrados: {len(cursos)}")
     for c in cursos:
-        print(f"[DEBUG] Curso: {c['nombre']} - {c['url']}")
+        logger.debug(f"Curso: {c['nombre']} - {c['url']}")
     return cursos
 
 def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
@@ -62,10 +65,10 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
     try:
         page.goto(f"{moodle_url}/course/view.php?id={curso_id}", wait_until="networkidle")
     except Exception as e:
-        print(f"[ERROR] No se pudo acceder al curso {curso_id}: {e}")
+        logger.error(f"No se pudo acceder al curso {curso_id}: {e}")
         return []
     actividades = page.query_selector_all(".modtype_assign")
-    print(f"[DEBUG] Curso {curso_id}: {len(actividades)} actividades tipo 'assign' encontradas")
+    logger.debug(f"Curso {curso_id}: {len(actividades)} actividades tipo 'assign' encontradas")
     for actividad in actividades:
         enlace_elem = actividad.query_selector("a.aalink")
         nombre_elem = actividad.query_selector(".instancename")
@@ -82,9 +85,9 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
                         "titulo": nombre_tarea,
                         "url": url_tarea
                     }
-                    print(f"[DEBUG] Tarea encontrada: {nombre_tarea} - {url_tarea}")
+                    logger.debug(f"Tarea encontrada: {nombre_tarea} - {url_tarea}")
     tareas = list(tareas_dict.values())
-    print(f"[DEBUG] Total tareas únicas para curso {curso_id}: {len(tareas)}")
+    logger.debug(f"Total tareas únicas para curso {curso_id}: {len(tareas)}")
 
     # Scraping de entregas pendientes para cada tarea
     for tarea in tareas:
@@ -98,12 +101,12 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
                 input_elem = page.query_selector('#id_grade_modgrade_point')
                 calif_val = input_elem.get_attribute('value') if input_elem else None
                 tarea['calificacion_maxima'] = float(calif_val) if calif_val else None
-                print(f"[DEBUG] Calificación máxima para tarea '{tarea['titulo']}': {tarea['calificacion_maxima']}")
+                logger.debug(f"Calificación máxima para tarea '{tarea['titulo']}': {tarea['calificacion_maxima']}")
             except Exception as e:
-                print(f"[WARN] No se pudo obtener calificación máxima para tarea {tarea['titulo']}: {e}")
+                logger.warning(f"No se pudo obtener calificación máxima para tarea {tarea['titulo']}: {e}")
                 tarea['calificacion_maxima'] = None
         except Exception as e:
-            print(f"[WARN] No se pudo acceder a la página de edición para tarea {tarea['titulo']}: {e}")
+            logger.warning(f"No se pudo acceder a la página de edición para tarea {tarea['titulo']}: {e}")
             tarea['calificacion_maxima'] = None
         # Scraping de entregas pendientes
         try:
@@ -118,9 +121,9 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso):
             page.wait_for_selector("table.generaltable tbody tr", timeout=5000)
             entregas = get_entregas_pendientes(page, tarea['tarea_id'])
             tarea['entregas_pendientes'] = entregas
-            print(f"[DEBUG] Entregas pendientes para tarea {tarea['titulo']}: {len(entregas)}")
+            logger.debug(f"Entregas pendientes para tarea {tarea['titulo']}: {len(entregas)}")
         except Exception as e:
-            print(f"[WARN] No se pudo scrapear entregas para tarea {tarea['titulo']}: {e}")
+            logger.warning(f"No se pudo scrapear entregas para tarea {tarea['titulo']}: {e}")
             tarea['entregas_pendientes'] = []
     return tareas
 
@@ -131,7 +134,7 @@ def get_entregas_pendientes(page, tarea_id):
     # DEBUG: mostrar textos de cabeceras para identificar índices
     for idx, th in enumerate(header_cells):
         hdr = th.inner_text().strip()
-        print(f"[DEBUG] Header col {idx}: '{hdr}'")
+        logger.debug(f"Header col {idx}: '{hdr}'")
     archivo_col_idx = None
     texto_col_idx = None
     nota_col_idx = None
@@ -143,7 +146,7 @@ def get_entregas_pendientes(page, tarea_id):
             texto_col_idx = idx
         if "Nota" in header_text or "Calificación" in header_text:
             nota_col_idx = idx
-    print(f"[DEBUG] Column indices -> archivos: {archivo_col_idx}, texto: {texto_col_idx}, nota: {nota_col_idx}")
+    logger.debug(f"Column indices -> archivos: {archivo_col_idx}, texto: {texto_col_idx}, nota: {nota_col_idx}")
     filas = page.query_selector_all("table.generaltable tbody tr")
     for fila in filas:
         # Extraer alumno_id desde el checkbox de selección
@@ -183,7 +186,7 @@ def get_entregas_pendientes(page, tarea_id):
             match = re.search(r"\d+[\.,]\d+", raw)
             if match:
                 nota_text = match.group()
-                print(f"[DEBUG] Extracted grade='{nota_text}' from nota column raw='{raw}'")
+                logger.debug(f"Extracted grade='{nota_text}' from nota column raw='{raw}'")
         archivos_td = tds[archivo_col_idx] if (archivo_col_idx is not None and archivo_col_idx < len(tds)) else None
         if archivos_td:
             enlaces = archivos_td.query_selector_all("a")
@@ -207,7 +210,7 @@ def get_entregas_pendientes(page, tarea_id):
                 "archivos": archivos,
                 "link_calificar": link_calificar
             })
-        print(f"[DEBUG] Fila alumno_id={alumno_id}, nombre={nombre}, texto='{texto_en_linea}', nota='{nota_text}', archivos_count={len(archivos)}")
+        logger.debug(f"Fila alumno_id={alumno_id}, nombre={nombre}, texto='{texto_en_linea}', nota='{nota_text}', archivos_count={len(archivos)}")
     return entregas
 
 def sincronizar_cursos_y_tareas(cuenta_id, usuario, contrasena, moodle_url):
@@ -247,7 +250,7 @@ def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
             page.wait_for_selector('div.activity-description#intro', timeout=5000)
             descripcion_html = page.inner_html('div.activity-description#intro')
         except Exception as e:
-            print(f"[WARN] No se pudo obtener descripción para tarea en {url_tarea}: {e}")
+            logger.warning(f"No se pudo obtener descripción para tarea en {url_tarea}: {e}")
         # Ir a la vista de grading para las entregas
         grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading"
         page.goto(grading_url, timeout=15000, wait_until="domcontentloaded")
@@ -260,7 +263,7 @@ def get_tarea(browser, moodle_url, usuario, contrasena, tarea_id):
             page.wait_for_selector("table.generaltable tbody tr", timeout=5000)
             entregas_pendientes = get_entregas_pendientes(page, tarea_id)
         except Exception as e:
-            print(f"[WARN] No se pudo obtener entregas para tarea en {grading_url}: {e}")
+            logger.warning(f"No se pudo obtener entregas para tarea en {grading_url}: {e}")
     finally:
         # Cerrar página y contexto para no acumular cookies
         page.close()

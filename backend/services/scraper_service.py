@@ -236,6 +236,7 @@ def get_tareas_de_curso(browser, page, moodle_url, cuenta_id, curso, hidden_ids=
         if tid in seen:
             continue
         seen.add(tid)
+        logger.info(f"SCRAPER: encontrada tarea '{nm}' con cmid={tid} en URL: {url}")
         tareas_info.append({"tarea_id": tid, "titulo": nm, "url": url})
     return tareas_info
 
@@ -245,8 +246,7 @@ def scrape_courses(moodle_url, usuario, contrasena):
         browser = p.chromium.launch(headless=True, devtools=True, slow_mo=500, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page()
         login_moodle(page, moodle_url, usuario, contrasena)
-        print("SCRAPER: Login realizado")
-        logger.info(" Login realizado")
+        logger.info("SCRAPER: Login realizado")
         cursos = get_cursos_moodle(page, moodle_url)
         browser.close()
         return cursos
@@ -258,8 +258,7 @@ def scrape_tasks(moodle_url, usuario, contrasena, curso_url, hidden_ids=None):
         page = browser.new_page()
         page.on("console", lambda msg: logger.info(f"[browser] {msg.text}"))
         login_moodle(page, moodle_url, usuario, contrasena)
-        print("SCRAPER: Login realizado")
-        logger.info(" Login realizado")
+        logger.info("SCRAPER: Login realizado")
         curso = {"url": curso_url}
         tareas = get_tareas_de_curso(browser, page, moodle_url, None, curso, hidden_ids)
         # incluir tipo y detalles avanzados en cada tarea
@@ -388,34 +387,62 @@ def _get_max_grade_sync(page, moodle_url, tarea_id):
 
 
 def _get_pending_submissions_sync(page, moodle_url, tarea_id):
-    # Navegar y obtener entregas pendientes de la tarea
+    """
+    Try to get pending submissions from the grading interface.
+    Uses defensive navigation and multiple fallback strategies.
+    """
     logger.info(f"SYNC SCRAPE: obteniendo entregas pendientes para tarea {tarea_id}")
     grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading"
     logger.info(f"SYNC SCRAPE: navegando a grading page {grading_url}")
+    
     try:
-        # Usar domcontentloaded en lugar de networkidle para evitar esperas indefinidas
+        # Navigate with domcontentloaded to avoid timeouts
         page.goto(grading_url, wait_until="domcontentloaded", timeout=30000)
         logger.info("SYNC SCRAPE: navegación básica completada")
         
-        # Esperar la tabla con timeout aumentado
-        page.wait_for_selector("table.generaltable", timeout=20000)
-        logger.info("SYNC SCRAPE: tabla encontrada")
+        # Look for the submissions table with increased timeout
+        have_table = False
+        try:
+            page.wait_for_selector("table.generaltable", timeout=20000)
+            have_table = True
+            logger.info("SYNC SCRAPE: tabla encontrada")
+        except:
+            logger.warning("SYNC SCRAPE: tabla no encontrada directamente")
         
-        # Intentar resetear el filtro si existe
+        # If no table, try finding and clicking a grading link
+        if not have_table:
+            try:
+                grade_links = page.query_selector_all("a[href*='grading'], button[title*='calificar' i], button[title*='grading' i]")
+                for link in grade_links:
+                    try:
+                        link_text = link.get_attribute("title") or link.inner_text()
+                        if any(word.lower() in link_text.lower() for word in ["grade", "grading", "calificar", "evaluar"]):
+                            link.click()
+                            page.wait_for_load_state("networkidle", timeout=10000)
+                            if page.query_selector("table.generaltable"):
+                                have_table = True
+                                break
+                    except:
+                        continue
+            except Exception as e:
+                logger.warning(f"SYNC SCRAPE: error buscando enlaces alternativos: {e}")
+        
+        if not have_table:
+            logger.warning("SYNC SCRAPE: no se pudo encontrar tabla de entregas")
+            return []
+            
+        # Try resetting the filter if it exists
         try:
             filter_sel = page.wait_for_selector("select#id_filter", timeout=10000)
             if filter_sel:
                 page.select_option("select#id_filter", "")
                 logger.info("SYNC SCRAPE: filtro reseteado")
-                # Breve espera para que se actualice la tabla
+                # Brief wait for table refresh
                 page.wait_for_timeout(2000)
         except Exception as e:
             logger.info(f"SYNC SCRAPE: no se encontró filtro o no se pudo resetear: {e}")
         
-        # Esperar al menos una fila en la tabla
-        page.wait_for_selector("table.generaltable tbody tr", timeout=20000)
-        logger.info("SYNC SCRAPE: al menos una fila encontrada")
-        
+        # Get submissions
         entregas = get_entregas_pendientes(page, tarea_id)
         logger.info(f"SYNC SCRAPE: {len(entregas)} entregas extraídas")
         return entregas
@@ -532,6 +559,7 @@ async def _get_contextid_async(page, moodle_url, tarea_id):
     """
     try:
         # Navigate to module settings to retrieve context
+        logger.info(f"SCRAPER: buscando contextid para cmid={tarea_id}")
         await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}", wait_until="domcontentloaded")
         
         # First try the hidden input (fastest)
@@ -610,12 +638,75 @@ async def _get_advanced_grading_async(page, moodle_url, contextid):
 
 
 async def _get_task_description_async(page, moodle_url, tarea_id):
-    # Scrape task description
-    await page.goto(f"{moodle_url}/mod/assign/view.php?id={tarea_id}", wait_until="domcontentloaded")
+    """
+    Get task description with improved error handling and multiple selector attempts.
+    """
+    logger.info(f"SCRAPER: obteniendo descripción para tarea {tarea_id}")
+    view_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}"
+    
+    logger.info(f"SCRAPER: ID de tarea procesado: cmid={tarea_id}")
+    
     try:
-        await page.wait_for_selector("div.activity-description#intro", timeout=5000)
-        return await page.inner_html("div.activity-description#intro")
-    except:
+        await page.goto(view_url, wait_until="domcontentloaded", timeout=15000)
+        logger.info(f"SCRAPER: navegación a {view_url} completada")
+
+        # Try multiple selector strategies
+        description = None
+        
+
+        # Estrategia 1: Buscar cualquier div con clase activity-description (sin esperar visibilidad)
+        try:
+            desc_els = await page.query_selector_all("div.activity-description")
+            for desc_el in desc_els:
+                html = await desc_el.inner_html()
+                if html and html.strip():
+                    description = html
+                    logger.info("SCRAPER: descripción encontrada con .activity-description (query_selector_all)")
+                    break
+        except Exception as e:
+            logger.info(f"SCRAPER: .activity-description (query_selector_all) no encontró descripción: {e}")
+
+        # Estrategia 2: Buscar por id intro (sin esperar visibilidad)
+        if not description:
+            try:
+                desc_el = await page.query_selector("#intro")
+                if desc_el:
+                    html = await desc_el.inner_html()
+                    if html and html.strip():
+                        description = html
+                        logger.info("SCRAPER: descripción encontrada con #intro (query_selector)")
+            except Exception as e:
+                logger.info(f"SCRAPER: #intro (query_selector) no encontró descripción: {e}")
+
+        # Estrategia 3: Otros contenedores comunes
+        if not description:
+            for selector in [
+                "div.assignment-description",
+                "div.box.generalbox",
+                "div.assign-intro",
+                "div[role='main'] .no-overflow"
+            ]:
+                try:
+                    desc_els = await page.query_selector_all(selector)
+                    for desc_el in desc_els:
+                        html = await desc_el.inner_html()
+                        if html and html.strip():
+                            description = html
+                            logger.info(f"SCRAPER: descripción encontrada con selector alternativo: {selector}")
+                            break
+                    if description:
+                        break
+                except Exception as e:
+                    logger.info(f"SCRAPER: {selector} (query_selector_all) no encontró descripción: {e}")
+
+        if description:
+            return description
+        else:
+            logger.warning(f"SCRAPER: no se encontró descripción para tarea {tarea_id}")
+            return None
+
+    except Exception as e:
+        logger.error(f"SCRAPER: error accediendo a descripción de tarea {tarea_id}: {e}")
         return None
 
 
@@ -623,8 +714,11 @@ async def scrape_task_details_async(page, moodle_url, tarea_id):
     """
     Version of scrape_task_details that reuses an existing logged-in page.
     This eliminates redundant logins during task synchronization.
+    
+    Args:
+        tarea_id: El cmid (course module id) de la tarea en Moodle, NO el id interno de la BD
     """
-    logger.info(f"SCRAPER: comenzando scraping de detalles para tarea {tarea_id}")
+    logger.info(f"SCRAPER: comenzando scraping de detalles para tarea con cmid={tarea_id}")
     
     # Task description first (most likely to succeed)
     desc = await _get_task_description_async(page, moodle_url, tarea_id)
@@ -632,7 +726,7 @@ async def scrape_task_details_async(page, moodle_url, tarea_id):
     # Get calificación máxima if available
     max_grade = None
     try:
-        await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}", wait_until="domcontentloaded")
+        await page.goto(f"{moodle_url}/course/modedit.php?update={tarea_id}&return=1", wait_until="domcontentloaded")
         input_grade = await page.query_selector("input#id_grade_modgrade_point")
         if input_grade:
             value = await input_grade.get_attribute("value")
@@ -642,44 +736,51 @@ async def scrape_task_details_async(page, moodle_url, tarea_id):
         logger.warning(f"No se pudo obtener calificación máxima: {e}")
 
     # Advanced grading: get contextid and scrape details (optional)
+    config_tipo = None
+    detalles_calificacion = None
     contextid = await _get_contextid_async(page, moodle_url, tarea_id)
-    config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
+    if contextid:
+        config_tipo, detalles_calificacion = await _get_advanced_grading_async(page, moodle_url, contextid)
 
     # Entregas (with improved navigation and error handling)
     try:
-        # First try with the base assign view
+        # Navigate to submissions grading page
         logger.info(f"SCRAPER: navegando a vista de calificación para tarea {tarea_id}")
         grading_url = f"{moodle_url}/mod/assign/view.php?id={tarea_id}&action=grading"
         await page.goto(grading_url, wait_until="domcontentloaded")
         
-        # Check if we're actually on the grading page
+        # Strategy 1: Try to find and use the grading table directly
+        have_grading_table = False
         try:
-            # Look for any sign that we're on a grading page
-            table = await page.query_selector("table.generaltable")
-            if not table:
-                # Try to find the "Grade" button/link that might take us to the grading view
-                grade_links = await page.query_selector_all("a[href*='grading']")
+            table = await page.wait_for_selector("table.generaltable", timeout=5000)
+            if table:
+                have_grading_table = True
+        except:
+            logger.info("SCRAPER: tabla de calificaciones no encontrada inmediatamente")
+
+        # Strategy 2: If no table, look for and click a grading/calificar link
+        if not have_grading_table:
+            try:
+                grade_links = await page.query_selector_all("a[href*='grading'], button[title*='calificar' i], button[title*='grading' i]")
                 for link in grade_links:
-                    link_text = await link.inner_text()
-                    if any(word in link_text.lower() for word in ["grade", "calificar", "evaluar"]):
+                    link_text = (await link.get_attribute("title")) or (await link.inner_text())
+                    if any(word.lower() in link_text.lower() for word in ["grade", "grading", "calificar", "evaluar"]):
                         await link.click()
                         await page.wait_for_load_state("networkidle")
-                        break
-                
-                # Check again for the table after possible navigation
-                table = await page.query_selector("table.generaltable")
-                if not table:
-                    logger.info(f"No grading table found for task {tarea_id} after navigation attempts")
-                    return {
-                        "descripcion": desc,
-                        "tipo_calificacion": config_tipo,
-                        "detalles_calificacion": detalles_calificacion,
-                        "entregas_pendientes": [],
-                        "calificacion_maxima": max_grade
-                    }
+                        # Check if we found the table after clicking
+                        try:
+                            table = await page.wait_for_selector("table.generaltable", timeout=5000)
+                            if table:
+                                have_grading_table = True
+                                break
+                        except:
+                            continue
+            except Exception as e:
+                logger.warning(f"SCRAPER: error buscando enlaces de calificación: {e}")
 
-        except Exception as e:
-            logger.warning(f"Error checking grading view: {e}")
+        # If we still don't have the table, return empty submissions
+        if not have_grading_table:
+            logger.info(f"SCRAPER: no se encontró tabla de calificaciones para tarea {tarea_id}")
             return {
                 "descripcion": desc,
                 "tipo_calificacion": config_tipo,
@@ -688,20 +789,14 @@ async def scrape_task_details_async(page, moodle_url, tarea_id):
                 "calificacion_maxima": max_grade
             }
 
-        # If we get here, we found the grading table
+        # We have the table - try to reset filter if present
         try:
             select = await page.query_selector("select#id_filter")
             if select:
                 await page.select_option("select#id_filter", "")
                 await page.wait_for_timeout(2000)  # Give it time to refresh
-                
-                # Wait for table rows after filter change
-                try:
-                    await page.wait_for_selector("table.generaltable tbody tr", timeout=5000)
-                except:
-                    pass  # Continue even if no rows appear
         except Exception as e:
-            logger.info(f"Filter handling failed (non-critical): {e}")
+            logger.info(f"SCRAPER: reset de filtro falló (no crítico): {e}")
             
         # Get submissions whether filter worked or not
         entregas = await get_entregas_pendientes_async(page, tarea_id)
@@ -716,7 +811,7 @@ async def scrape_task_details_async(page, moodle_url, tarea_id):
         }
             
     except Exception as e:
-        logger.error(f"Error processing submissions for task {tarea_id}: {e}")
+        logger.error(f"SCRAPER: error procesando entregas para tarea {tarea_id}: {e}")
         return {
             "descripcion": desc,
             "tipo_calificacion": config_tipo,

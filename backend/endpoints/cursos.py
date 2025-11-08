@@ -111,25 +111,17 @@ async def download_submission_file(page, file_url, tarea_id, entrega_id, nombre_
         raise
 
 async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, usuario: str, contrasena: str, url_curso: str):
+    """
+    Sincroniza todas las tareas no ocultas de un curso.
+    Reutiliza una sesión de navegador y aprovecha la función sync_single_task para cada tarea.
+    """
     db_task = SessionLocal()
     try:
-        # Cache task hidden states before any deletions
-        existing_task_states = {
-            t.tarea_id: {"id": t.id, "oculto": t.oculto} 
+        # Obtener estado actual de las tareas antes de empezar
+        existing_tasks = {
+            t.tarea_id: t
             for t in db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id).all()
         }
-        
-        # Get IDs of non-hidden tasks
-        tarea_ids = [info["id"] for info in existing_task_states.values() if not info["oculto"]]
-        
-        # Delete entries for non-hidden tasks
-        if tarea_ids:
-            db_task.query(EntregaDB).filter(EntregaDB.tarea_id.in_(tarea_ids)).delete(synchronize_session=False)
-            db_task.commit()
-            
-        # Delete non-hidden tasks
-        db_task.query(TareaDB).filter(TareaDB.curso_id == curso_id, TareaDB.oculto == False).delete(synchronize_session=False)
-        db_task.commit()
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
@@ -145,14 +137,16 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
             match = re.search(r"id=(\d+)", url_curso)
             if not match:
                 raise Exception("URL del curso inválida")
-            
+                
             cid = int(match.group(1))
             await page.goto(f"{moodle_url}/course/view.php?id={cid}", wait_until="networkidle")
             
+            elementos = await page.query_selector_all(".modtype_assign")
+            
+            # Extraer información básica de todas las tareas visibles
             tareas_info = []
             seen = set()
             
-            elementos = await page.query_selector_all(".modtype_assign")
             for el in elementos:
                 link_el = await el.query_selector("a.aalink")
                 name_el = await el.query_selector(".instancename")
@@ -169,19 +163,40 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
                 tid = int(m2.group(1))
                 if tid in seen:
                     continue
-                
-                # Check if task exists and is hidden using cached states
-                task_state = existing_task_states.get(tid)
-                if task_state and task_state["oculto"]:
+                    
+                # Si la tarea existe y está oculta, omitirla
+                existing_task = existing_tasks.get(tid)
+                if existing_task and existing_task.oculto:
                     continue
                     
                 seen.add(tid)
-                tareas_info.append({"tarea_id": tid, "titulo": nombre.strip(), "url": url})
+                tareas_info.append({
+                    "tarea_id": tid,
+                    "titulo": nombre.strip(),
+                    "url": url
+                })
             
             total = len(tareas_info)
-            logger.info(f"SCRAPER: encontradas {total} tareas")
-
-            # Procesar cada tarea
+            logger.info(f"SCRAPER: Encontradas {total} tareas para sincronizar")
+            
+            # Limpiar las entregas de tareas no ocultas que ya no existen en Moodle
+            tareas_actuales = {t["tarea_id"] for t in tareas_info}
+            tareas_obsoletas = [
+                t.id for t in existing_tasks.values()
+                if not t.oculto and t.tarea_id not in tareas_actuales
+            ]
+            if tareas_obsoletas:
+                # Eliminar primero las entregas
+                db_task.query(EntregaDB).filter(
+                    EntregaDB.tarea_id.in_(tareas_obsoletas)
+                ).delete(synchronize_session=False)
+                # Luego las tareas
+                db_task.query(TareaDB).filter(
+                    TareaDB.id.in_(tareas_obsoletas)
+                ).delete(synchronize_session=False)
+                db_task.commit()
+            
+            # Procesar cada tarea reutilizando la sesión
             for idx, info in enumerate(tareas_info, start=1):
                 # Actualizar progreso
                 sin = db_task.query(SincronizacionDB).filter(
@@ -193,106 +208,36 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
                     sin.fecha = datetime.utcnow()
                     sin.porcentaje = (idx/total)*100
                     db_task.commit()
-                    logger.info(f"SINCRONIZACION PROGRESO: tarea {idx}/{total}")
-
-                logger.info(f"SCRAPER: procesando tarea {idx}/{total} id {info.get('tarea_id')}")
                 
-                # Obtener detalles de la tarea usando la sesión existente
-                details = await scrape_task_details_async(page, moodle_url, info['tarea_id'])
-                entregas = details.get('entregas_pendientes', [])
+                logger.info(f"SCRAPER: Sincronizando tarea {idx}/{total}: {info['titulo']} (cmid={info['tarea_id']})")
                 
-                # Determinar estado según entregas
-                if not entregas:
-                    estado = 'sin_entregas'
-                elif any(e.get('estado','').lower().startswith('enviado') or e.get('estado','').lower().startswith('pendiente') for e in entregas):
-                    estado = 'pendiente_calificar'
-                else:
-                    estado = 'sin_pendientes'
-
-                # Find if task exists or create new 
-                task_state = existing_task_states.get(info['tarea_id'])
-                tarea = None
-                if task_state:
-                    tarea = db_task.query(TareaDB).filter(TareaDB.id == task_state["id"]).first()
-                
-                # Preparar datos de la tarea
-                tarea_data = {
-                    'cuenta_id': cuenta_id,
-                    'curso_id': curso_id,
-                    'tarea_id': info['tarea_id'],
-                    'titulo': info['titulo'],
-                    'descripcion': details.get('descripcion'),
-                    'estado': estado,
-                    'calificacion_maxima': details.get('calificacion_maxima'),
-                    'tipo_calificacion': details.get('tipo_calificacion'),
-                    'detalles_calificacion': details.get('detalles_calificacion')
-                }
-                
-                if tarea:
-                    # Si existe y está oculta, mantener ese estado
-                    if task_state["oculto"]:
-                        tarea_data['oculto'] = True
-                    # Actualizar la tarea existente
-                    for key, value in tarea_data.items():
-                        setattr(tarea, key, value)
-                else:
-                    # Crear nueva tarea
-                    tarea = TareaDB(**tarea_data)
-                    db_task.add(tarea)
-                
-                db_task.commit()
-                db_task.refresh(tarea)
-
-                # Process submissions
-                for entrega in entregas:
-                    archivos = entrega.get('archivos', [])
-                    file_url = archivos[0]['url'] if archivos else None
-                    file_name = archivos[0]['nombre'] if archivos else None
-                    texto = entrega.get('texto')
-                    nota_text = entrega.get('nota')
+                try:
+                    existing_task = existing_tasks.get(info['tarea_id'])
+                    was_hidden = existing_task.oculto if existing_task else False
                     
-                    local_path = None
-                    if file_url and file_name:
-                        # Try multiple times if download fails
-                        max_intentos = 3
-                        for intento in range(max_intentos):
-                            try:
-                                logger.info(f"Intento {intento + 1} de {max_intentos} descargando {file_name}")
-                                # Use our DB task ID, not Moodle's
-                                local_path = await download_submission_file(page, file_url, tarea.id, entrega.get('alumno_id'), file_name)
-                                break  # If download successful, exit loop
-                            except Exception as e:
-                                logger.error(f"Error intento {intento + 1} descargando archivo de entrega: {e}")
-                                await asyncio.sleep(5 * (intento + 1))  # Wait longer between attempts
-                                continue
-                    
-                    try:
-                        nota = float(str(nota_text).replace(',', '.')) if nota_text else None
-                    except:
-                        nota = None
-
-                    nueva_entrega = EntregaDB(
-                        tarea_id=tarea.id,
-                        alumno_id=entrega.get('alumno_id'),
-                        fecha_entrega=entrega.get('fecha_entrega'),
-                        contenido=texto,
-                        file_url=file_url,
-                        file_name=file_name,
-                        estado=entrega.get('estado'),
-                        nombre=entrega.get('nombre'),
-                        nota=nota,
-                        local_file_path=local_path
+                    # Usar sync_single_task para procesar cada tarea
+                    from services.task_sync_service import sync_single_task
+                    await sync_single_task(
+                        db=db_task,
+                        task_info=info,
+                        page=page,
+                        cuenta_id=cuenta_id,
+                        curso_id=curso_id,
+                        moodle_url=moodle_url,
+                        existing_task=existing_task,
+                        was_hidden=was_hidden
                     )
-                    db_task.add(nueva_entrega)
-                
-                db_task.commit()
+                except Exception as e:
+                    logger.error(f"Error sincronizando tarea {info['tarea_id']}: {e}")
+                    # Continue with next task sin romper el proceso completo
+                    continue
 
             await browser.close()
             
-            # Update final state
+            # Actualizar estado final
             sin = db_task.query(SincronizacionDB).filter(
-                SincronizacionDB.cuenta_id==cuenta_id,
-                SincronizacionDB.curso_id==curso_id
+                SincronizacionDB.cuenta_id == cuenta_id,
+                SincronizacionDB.curso_id == curso_id
             ).first()
             if sin:
                 sin.estado = 'completada'
@@ -307,11 +252,11 @@ async def run_sync_tareas_async(cuenta_id: int, curso_id: int, moodle_url: str, 
         traceback.print_exc()
         db_task.rollback()
         sin = db_task.query(SincronizacionDB).filter(
-            SincronizacionDB.cuenta_id==cuenta_id,
-            SincronizacionDB.curso_id==curso_id
+            SincronizacionDB.cuenta_id == cuenta_id,
+            SincronizacionDB.curso_id == curso_id
         ).first()
         if sin:
-            sin.estado = f"error: {e}"
+            sin.estado = f"error: {str(e)}"
             sin.fecha = datetime.utcnow()
             db_task.commit()
         raise

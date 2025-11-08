@@ -6,7 +6,9 @@ from database import get_db, engine
 from scraper import sincronizar_cursos_y_tareas
 from services.scraper_service import scrape_courses
 import re
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/api/usuarios/{usuario_id}/cuentas")
@@ -87,7 +89,7 @@ def sync_task(usuario, contrasena, url, cuenta_id):
     # Raw SQL connection para sincronizaciones
     conn = engine.raw_connection()
     cursor = conn.cursor()
-    print(f"[DEBUG] sync_task lanzado para cuenta {cuenta_id}")
+    logger.debug(f"sync_task lanzado para cuenta {cuenta_id}")
     # Marcar como "sincronizando"
     cursor.execute(
         "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
@@ -95,9 +97,9 @@ def sync_task(usuario, contrasena, url, cuenta_id):
     )
     conn.commit()
     try:
-        print("[DEBUG] Antes de llamar a sincronizar_cursos_y_tareas")
+        logger.debug("Antes de llamar a sincronizar_cursos_y_tareas")
         cursos, tareas_por_curso = sincronizar_cursos_y_tareas(cuenta_id, usuario, contrasena, url)
-        print(f"[DEBUG] Cursos obtenidos: {len(cursos)}")
+        logger.debug(f"Cursos obtenidos: {len(cursos)}")
 
         # Eliminar cursos y tareas anteriores de esta cuenta
         cursor.execute("DELETE FROM tareas WHERE curso_id IN (SELECT id FROM cursos WHERE cuenta_id = %s)", (cuenta_id,))
@@ -121,9 +123,9 @@ def sync_task(usuario, contrasena, url, cuenta_id):
             if not curso_db_id:
                 continue
             for tarea in tareas:
-                print(f"[DEBUG] Intentando insertar tarea: {tarea}")
+                logger.debug(f"Intentando insertar tarea: {tarea}")
                 if "tarea_id" not in tarea:
-                    print(f"[ERROR] tarea_id no encontrado en tarea: {tarea}")
+                    logger.error(f"tarea_id no encontrado en tarea: {tarea}")
                     continue
                 cursor.execute(
                     "INSERT OR IGNORE INTO tareas (cuenta_id, curso_id, tarea_id, titulo, url, descripcion) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -135,7 +137,7 @@ def sync_task(usuario, contrasena, url, cuenta_id):
             (cuenta_id, "ok")
         )
     except Exception as e:
-        print(f"[ERROR] Excepción en sync_task: {e}")
+        logger.error(f"Excepción en sync_task: {e}", exc_info=True)
         cursor.execute(
             "INSERT INTO sincronizaciones (cuenta_id, estado, fecha) VALUES (%s, %s, NOW()) ON CONFLICT (cuenta_id) DO UPDATE SET estado = EXCLUDED.estado, fecha = NOW()",
             (cuenta_id, "error")
