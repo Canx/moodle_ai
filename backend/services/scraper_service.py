@@ -5,7 +5,14 @@ import asyncio
 from urllib.parse import urljoin, urlparse, parse_qs
 import logging
 
+# Configurar logger a archivo para debug
+file_handler = logging.FileHandler('/tmp/scraper_debug.log')
+file_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
 logger = logging.getLogger(__name__)
+logger.addHandler(file_handler)
+logger.setLevel(logging.INFO)
 
 # Servicio puro de scraping de Moodle: sin lógica de BD ni endpoints.
 
@@ -139,26 +146,70 @@ def get_entregas_pendientes(page, tarea_id):
     except Exception as e:
         logger.warning(f"SYNC SCRAPE: no se encontró tabla de encabezados: {e}")
         header_cells = []
-    archivo_col_idx = texto_col_idx = nota_col_idx = None
+    
+    archivo_col_idx = texto_col_idx = nota_col_idx = nombre_col_idx = None
+    
     for idx, th in enumerate(header_cells):
         try:
             txt = th.inner_text().strip()
+            logger.info(f"DEBUG: Columna {idx}: '{txt}'")
         except Exception as e:
             logger.warning(f"SYNC SCRAPE: error leyendo encabezado idx {idx}: {e}")
             continue
+            
         if "Archivos enviados" in txt:
             archivo_col_idx = idx
         if "Texto en línea" in txt:
             texto_col_idx = idx
         if ("Nota" in txt or "Calificación" in txt) and nota_col_idx is None:
             nota_col_idx = idx
+        if "Nombre" in txt or "Apellidos" in txt:
+            nombre_col_idx = idx
+            logger.info(f"DEBUG: Columna nombre detectada en índice {idx}")
+            
     filas = page.query_selector_all("table.generaltable tbody tr")
     for fila in filas:
         cb = fila.query_selector("input[name='selectedusers']")
         if not cb:
             continue
         alumno_id = cb.get_attribute("value").strip()
-        nombre = fila.query_selector("td.c2 a").inner_text().strip() if fila.query_selector("td.c2 a") else ""
+        
+        # Extracción mejorada de nombre
+        nombre = ""
+        tds = fila.query_selector_all("td")
+        
+        # 1. Por columna detectada
+        if nombre_col_idx is not None and nombre_col_idx < len(tds):
+            try:
+                nombre = tds[nombre_col_idx].inner_text().strip()
+            except: pass
+            
+        # 2. Fallback: buscar link de usuario en columnas comunes (c2) o cualquier link a /user/view.php
+        if not nombre:
+            try:
+                # Intentar selector clásico c2
+                link = fila.query_selector("td.c2 a")
+                if link and "user/view.php" in (link.get_attribute("href") or ""):
+                    nombre = link.inner_text().strip()
+                
+                # Si falla, buscar cualquier link de usuario en la fila
+                if not nombre:
+                    links = fila.query_selector_all("a[href*='user/view.php']")
+                    for l in links:
+                        txt = l.inner_text().strip()
+                        if txt and len(txt) > 2: # Evitar iniciales o iconos
+                            nombre = txt
+                            break
+                            
+                # Fallback final: buscar imagen de perfil (userpicture)
+                if not nombre:
+                    img = fila.query_selector("img.userpicture")
+                    if img:
+                        alt = img.get_attribute("alt")
+                        if alt and "Imagen de" not in alt: # A veces dice "Imagen de Juan"
+                            nombre = alt.replace("Imagen de", "").strip()
+            except: pass
+
         estado = fila.query_selector("td.c4 div").inner_text().strip() if fila.query_selector("td.c4 div") else ""
         fecha_entrega = fila.query_selector("td.c7").inner_text().strip() if fila.query_selector("td.c7") else ""
         tds = fila.query_selector_all("td")
@@ -481,24 +532,77 @@ async def login_moodle_async(page, moodle_url, usuario, contrasena):
 
 async def get_entregas_pendientes_async(page, tarea_id):
     entregas = []
-    header_cells = await page.query_selector_all("table.generaltable thead th")
-    archivo_col_idx = texto_col_idx = nota_col_idx = None
+    
+    try:
+        header_cells = await page.query_selector_all("table.generaltable thead th")
+    except Exception as e:
+        logger.warning(f"ASYNC SCRAPE: no se encontró tabla de encabezados: {e}")
+        header_cells = []
+        
+    archivo_col_idx = texto_col_idx = nota_col_idx = nombre_col_idx = None
+    
     for idx, th in enumerate(header_cells):
-        txt = await th.inner_text()
+        try:
+            txt = (await th.inner_text()).strip()
+            logger.info(f"DEBUG ASYNC: Columna {idx}: '{txt}'")
+        except:
+            continue
+            
         if "Archivos enviados" in txt:
             archivo_col_idx = idx
         if "Texto en línea" in txt:
             texto_col_idx = idx
         if ("Nota" in txt or "Calificación" in txt) and nota_col_idx is None:
             nota_col_idx = idx
+        if "Nombre" in txt or "Apellidos" in txt:
+            nombre_col_idx = idx
+            logger.info(f"DEBUG ASYNC: Columna nombre detectada en índice {idx}")
+            
     filas = await page.query_selector_all("table.generaltable tbody tr")
     for fila in filas:
         cb = await fila.query_selector("input[name='selectedusers']")
         if not cb:
             continue
         alumno_id = (await cb.get_attribute("value")).strip()
-        nombre_el = await fila.query_selector("td.c2 a")
-        nombre = (await nombre_el.inner_text()).strip() if nombre_el else ""
+        
+        # Extracción mejorada de nombre (Async)
+        nombre = ""
+        tds = await fila.query_selector_all("td")
+        
+        # 1. Por columna detectada
+        if nombre_col_idx is not None and nombre_col_idx < len(tds):
+            try:
+                nombre = (await tds[nombre_col_idx].inner_text()).strip()
+            except: pass
+            
+        # 2. Fallback: buscar link de usuario en columnas comunes o cualquier link a /user/view.php
+        if not nombre:
+            try:
+                # Intentar selector clásico c2
+                link = await fila.query_selector("td.c2 a")
+                if link:
+                    href = await link.get_attribute("href")
+                    if href and "user/view.php" in href:
+                        nombre = (await link.inner_text()).strip()
+                
+                # Si falla, buscar cualquier link de usuario en la fila
+                if not nombre:
+                    links = await fila.query_selector_all("a[href*='user/view.php']")
+                    for l in links:
+                        txt = (await l.inner_text()).strip()
+                        if txt and len(txt) > 2:
+                            nombre = txt
+                            break
+                            
+                # Fallback final: buscar imagen de perfil
+                if not nombre:
+                    img = await fila.query_selector("img.userpicture")
+                    if img:
+                        alt = await img.get_attribute("alt")
+                        if alt and "Imagen de" not in alt:
+                            nombre = alt.replace("Imagen de", "").strip()
+            except: pass
+
         estado_el = await fila.query_selector("td.c4 div")
         estado = (await estado_el.inner_text()).strip() if estado_el else ""
         fecha_el = await fila.query_selector("td.c7")
